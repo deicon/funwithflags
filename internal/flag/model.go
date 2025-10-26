@@ -28,7 +28,7 @@ type FeatureFlag struct {
 	Enabled     bool
 	DefaultKey  string
 	Variations  []Variation
-	Rules       []TargetingRule
+	Rules       []Rule
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -40,6 +40,52 @@ type EvaluationResult struct {
 	Reason    string
 }
 
+const (
+	ReasonTargetMatch       = "TARGET_MATCH"
+	ReasonPercentageRollout = "PERCENTAGE_ROLLOUT"
+	ReasonDefault           = "DEFAULT"
+	ReasonDisabled          = "DISABLED"
+)
+
+type MatcherOperator string
+
+const (
+	MatcherEquals     MatcherOperator = "equals"
+	MatcherNotEquals  MatcherOperator = "not_equals"
+	MatcherContains   MatcherOperator = "contains"
+	MatcherStartsWith MatcherOperator = "starts_with"
+	MatcherEndsWith   MatcherOperator = "ends_with"
+	MatcherGreater    MatcherOperator = "greater_than"
+	MatcherLess       MatcherOperator = "less_than"
+	MatcherIn         MatcherOperator = "in"
+	MatcherExists     MatcherOperator = "exists"
+)
+
+type Condition struct {
+	Attribute string
+	Operator  MatcherOperator
+	Value     any
+}
+
+type RolloutBucket struct {
+	VariationKey string
+	Weight       float64
+}
+
+type PercentageRollout struct {
+	Attribute string
+	Seed      string
+	Buckets   []RolloutBucket
+}
+
+type Rule struct {
+	ID           string
+	Description  string
+	Conditions   []Condition
+	VariationKey string
+	Rollout      *PercentageRollout
+}
+
 type Repository interface {
 	GetFlag(ctx context.Context, key string) (FeatureFlag, error)
 	ListFlags(ctx context.Context) ([]FeatureFlag, error)
@@ -49,8 +95,4 @@ type Repository interface {
 
 type Evaluator interface {
 	Evaluate(ctx context.Context, flag FeatureFlag, attrs EvaluationContext) (EvaluationResult, error)
-}
-
-type TargetingRule interface {
-	Evaluate(ctx context.Context, attrs EvaluationContext) (EvaluationResult, bool, error)
 }
