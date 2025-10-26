@@ -28,6 +28,18 @@ func newEvaluateHandler(service *flag.Service) http.HandlerFunc {
 			return
 		}
 
+		project := r.PathValue("project")
+		if project == "" {
+			writeError(w, http.StatusBadRequest, "project missing from path")
+			return
+		}
+
+		stage := r.PathValue("stage")
+		if stage == "" {
+			writeError(w, http.StatusBadRequest, "stage missing from path")
+			return
+		}
+
 		flagKey := r.PathValue("key")
 		if flagKey == "" {
 			writeError(w, http.StatusBadRequest, "flag key missing from path")
@@ -46,7 +58,7 @@ func newEvaluateHandler(service *flag.Service) http.HandlerFunc {
 		}
 
 		ctx := flag.EvaluationContext(req.Context)
-		result, err := service.EvaluateFlag(r.Context(), flagKey, ctx)
+		result, err := service.EvaluateFlag(r.Context(), project, stage, flagKey, ctx)
 		if err != nil {
 			switch {
 			case errors.Is(err, flag.ErrFlagNotFound):

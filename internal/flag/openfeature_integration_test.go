@@ -5,18 +5,23 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
 )
 
 type serviceProvider struct {
 	service  *Service
+	project  string
+	stage    string
 	metadata openfeature.Metadata
 }
 
-func newServiceProvider(svc *Service) *serviceProvider {
+func newServiceProvider(svc *Service, project, stage string) *serviceProvider {
 	return &serviceProvider{
 		service:  svc,
+		project:  project,
+		stage:    stage,
 		metadata: openfeature.Metadata{Name: "funwithflags-service"},
 	}
 }
@@ -106,7 +111,7 @@ func (p *serviceProvider) evaluate(ctx context.Context, flagKey string, flatCtx 
 		attrs[k] = v
 	}
 
-	res, err := p.service.EvaluateFlag(ctx, flagKey, attrs)
+	res, err := p.service.EvaluateFlag(ctx, p.project, p.stage, flagKey, attrs)
 	if err != nil {
 		detail := openfeature.ProviderResolutionDetail{
 			Reason: openfeature.ErrorReason,
@@ -182,8 +187,12 @@ func TestOpenFeatureClientIntegration(t *testing.T) {
 	}
 
 	flagDef := FeatureFlag{
+		Project:    "test-project",
+		Stage:      "dev",
 		Key:        "checkout-flow",
 		Enabled:    true,
+		Active:     true,
+		ValidFrom:  time.Now(),
 		DefaultKey: "control",
 		Variations: []Variation{
 			{Key: "control", Type: BooleanVariation, Value: false},
@@ -204,7 +213,7 @@ func TestOpenFeatureClientIntegration(t *testing.T) {
 		t.Fatalf("UpsertFlag: %v", err)
 	}
 
-	provider := newServiceProvider(service)
+	provider := newServiceProvider(service, "test-project", "dev")
 	if err := openfeature.SetProviderAndWait(provider); err != nil {
 		t.Fatalf("SetProviderAndWait: %v", err)
 	}
