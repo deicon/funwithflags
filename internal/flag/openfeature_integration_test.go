@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/open-feature/go-sdk/openfeature"
 )
@@ -190,6 +191,8 @@ func TestOpenFeatureClientIntegration(t *testing.T) {
 		Stage:      "dev",
 		Key:        "checkout-flow",
 		Enabled:    true,
+		Active:     true,
+		ValidFrom:  time.Now(),
 		DefaultKey: "control",
 		Variations: []Variation{
 			{Key: "control", Type: BooleanVariation, Value: false},

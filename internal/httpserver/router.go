@@ -25,13 +25,19 @@ func NewRouter(cfg Config) (*http.ServeMux, error) {
 	// Evaluation endpoint
 	mux.HandleFunc("POST /api/v1/{project}/{stage}/flags/{key}/evaluate", newEvaluateHandler(cfg.FlagService))
 
-	// Admin endpoints
+	// Admin endpoints - flag operations (currently active flags)
 	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags", newListFlagsHandler(cfg.FlagService))
 	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}", newGetFlagHandler(cfg.FlagService))
 	mux.HandleFunc("POST /api/v1/admin/{project}/{stage}/flags", newCreateFlagHandler(cfg.FlagService))
-	mux.HandleFunc("PUT /api/v1/admin/{project}/{stage}/flags/{key}", newUpdateFlagHandler(cfg.FlagService))
-	mux.HandleFunc("DELETE /api/v1/admin/{project}/{stage}/flags/{key}", newDeleteFlagHandler(cfg.FlagService))
 	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}/audit", newGetAuditLogsHandler(cfg.FlagService))
+
+	// Admin endpoints - temporal range operations
+	mux.HandleFunc("GET /api/v1/admin/flags/{id}", newGetFlagByIDHandler(cfg.FlagService))
+	mux.HandleFunc("PUT /api/v1/admin/flags/{id}", newUpdateFlagHandler(cfg.FlagService))
+	mux.HandleFunc("DELETE /api/v1/admin/flags/{id}", newDeleteFlagHandler(cfg.FlagService))
+	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}/ranges", newGetFlagRangesHandler(cfg.FlagService))
+	mux.HandleFunc("POST /api/v1/admin/flags/{id}/activate", newActivateFlagHandler(cfg.FlagService))
+	mux.HandleFunc("POST /api/v1/admin/flags/{id}/deactivate", newDeactivateFlagHandler(cfg.FlagService))
 
 	return mux, nil
 }

@@ -10,24 +10,31 @@ import (
 )
 
 type InMemoryRepository struct {
-	mu    sync.RWMutex
-	flags map[string]FeatureFlag
-	now   func() time.Time
+	mu      sync.RWMutex
+	flags   map[int64]FeatureFlag // flags by ID
+	nextID  int64
+	now     func() time.Time
 }
 
 func NewInMemoryRepository() *InMemoryRepository {
 	return &InMemoryRepository{
-		flags: make(map[string]FeatureFlag),
-		now:   func() time.Time { return time.Now().UTC() },
+		flags:  make(map[int64]FeatureFlag),
+		nextID: 1,
+		now:    func() time.Time { return time.Now().UTC() },
 	}
 }
 
+// GetFlag gets the currently active flag valid at the current time
 func (r *InMemoryRepository) GetFlag(ctx context.Context, project, stage, key string) (FeatureFlag, error) {
+	return r.GetFlagAt(ctx, project, stage, key, r.now())
+}
+
+// GetFlagByID gets a specific flag range by ID
+func (r *InMemoryRepository) GetFlagByID(ctx context.Context, id int64) (FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	compositeKey := makeCompositeKey(project, stage, key)
-	flag, ok := r.flags[compositeKey]
+	flag, ok := r.flags[id]
 	if !ok {
 		return FeatureFlag{}, ErrFlagNotFound
 	}
@@ -35,64 +42,243 @@ func (r *InMemoryRepository) GetFlag(ctx context.Context, project, stage, key st
 	return cloneFlag(flag), nil
 }
 
-func (r *InMemoryRepository) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
+// GetFlagAt gets the active flag valid at a specific time
+func (r *InMemoryRepository) GetFlagAt(ctx context.Context, project, stage, key string, at time.Time) (FeatureFlag, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var found *FeatureFlag
+	for _, flag := range r.flags {
+		if flag.Project == project && flag.Stage == stage && flag.Key == key && flag.Active {
+			if IsValidInRange(at, flag.ValidFrom, flag.ValidTo) {
+				if found == nil || flag.ValidFrom.After(found.ValidFrom) {
+					flagCopy := flag
+					found = &flagCopy
+				}
+			}
+		}
+	}
+
+	if found == nil {
+		return FeatureFlag{}, ErrFlagNotFound
+	}
+
+	return cloneFlag(*found), nil
+}
+
+// GetFlagRanges gets all temporal ranges (active and inactive) for a flag
+func (r *InMemoryRepository) GetFlagRanges(ctx context.Context, project, stage, key string) ([]FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	flags := make([]FeatureFlag, 0)
-	for _, f := range r.flags {
-		if f.Project == project && f.Stage == stage {
-			flags = append(flags, cloneFlag(f))
+	for _, flag := range r.flags {
+		if flag.Project == project && flag.Stage == stage && flag.Key == key {
+			flags = append(flags, cloneFlag(flag))
+		}
+	}
+
+	// Sort by ValidFrom descending (most recent first)
+	for i := 0; i < len(flags)-1; i++ {
+		for j := i + 1; j < len(flags); j++ {
+			if flags[i].ValidFrom.Before(flags[j].ValidFrom) {
+				flags[i], flags[j] = flags[j], flags[i]
+			}
 		}
 	}
 
 	return flags, nil
 }
 
+// ListFlags lists all currently active flags at the current time
+func (r *InMemoryRepository) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	now := r.now()
+	flagsByKey := make(map[string]FeatureFlag)
+
+	for _, flag := range r.flags {
+		if flag.Project == project && flag.Stage == stage && flag.Active {
+			if IsValidInRange(now, flag.ValidFrom, flag.ValidTo) {
+				existing, exists := flagsByKey[flag.Key]
+				if !exists || flag.ValidFrom.After(existing.ValidFrom) {
+					flagsByKey[flag.Key] = flag
+				}
+			}
+		}
+	}
+
+	flags := make([]FeatureFlag, 0, len(flagsByKey))
+	for _, flag := range flagsByKey {
+		flags = append(flags, cloneFlag(flag))
+	}
+
+	return flags, nil
+}
+
+// UpsertFlag creates or updates a flag range (validates non-overlapping ranges)
 func (r *InMemoryRepository) UpsertFlag(ctx context.Context, flag FeatureFlag) error {
 	if err := validateFlag(flag); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidFlag, err)
 	}
 
+	// Validate temporal range
+	if err := ValidateTemporalRange(flag.ValidFrom, flag.ValidTo); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidTimeRange, err)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	compositeKey := makeCompositeKey(flag.Project, flag.Stage, flag.Key)
+	// Check for overlapping ranges
+	hasOverlap, err := r.checkOverlapLocked(flag.Project, flag.Stage, flag.Key, flag.ValidFrom, flag.ValidTo, flag.ID)
+	if err != nil {
+		return fmt.Errorf("failed to check overlap: %w", err)
+	}
+	if hasOverlap {
+		return ErrRangeOverlap
+	}
+
 	now := r.now()
-	existing, exists := r.flags[compositeKey]
-	if !exists {
-		flag.CreatedAt = now
+
+	// Update existing flag range
+	if flag.ID > 0 {
+		existing, exists := r.flags[flag.ID]
+		if !exists {
+			return ErrFlagNotFound
+		}
+
+		// Optimistic locking check
+		if !flag.UpdatedAt.IsZero() && !flag.UpdatedAt.Equal(existing.UpdatedAt) {
+			return ErrFlagConflict
+		}
+
+		flag.CreatedAt = existing.CreatedAt
 		flag.UpdatedAt = now
-		r.flags[compositeKey] = cloneFlag(flag)
+		r.flags[flag.ID] = cloneFlag(flag)
 		return nil
 	}
 
-	if !flag.UpdatedAt.IsZero() && !flag.UpdatedAt.Equal(existing.UpdatedAt) {
-		return ErrFlagConflict
+	// Insert new flag range
+	flag.ID = r.nextID
+	r.nextID++
+	flag.CreatedAt = now
+	flag.UpdatedAt = now
+
+	// Default to active if not specified
+	if !flag.Active {
+		flag.Active = true
 	}
 
-	flag.CreatedAt = existing.CreatedAt
-	flag.UpdatedAt = now
-	r.flags[compositeKey] = cloneFlag(flag)
-
+	r.flags[flag.ID] = cloneFlag(flag)
 	return nil
 }
 
-func (r *InMemoryRepository) DeleteFlag(ctx context.Context, project, stage, key string) error {
+// DeleteFlag deletes a specific flag range by ID
+func (r *InMemoryRepository) DeleteFlag(ctx context.Context, id int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	compositeKey := makeCompositeKey(project, stage, key)
-	if _, exists := r.flags[compositeKey]; !exists {
+	if _, exists := r.flags[id]; !exists {
 		return ErrFlagNotFound
 	}
 
-	delete(r.flags, compositeKey)
+	delete(r.flags, id)
 	return nil
 }
 
-func makeCompositeKey(project, stage, key string) string {
-	return fmt.Sprintf("%s:%s:%s", project, stage, key)
+// ActivateFlag activates a flag range (checks for overlapping active ranges)
+func (r *InMemoryRepository) ActivateFlag(ctx context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	flag, exists := r.flags[id]
+	if !exists {
+		return ErrFlagNotFound
+	}
+
+	// Check if already active
+	if flag.Active {
+		return nil // Already active, nothing to do
+	}
+
+	// Check for overlapping active ranges
+	hasOverlap, err := r.checkActiveOverlapLocked(flag.Project, flag.Stage, flag.Key, flag.ValidFrom, flag.ValidTo, id)
+	if err != nil {
+		return fmt.Errorf("failed to check active overlap: %w", err)
+	}
+	if hasOverlap {
+		return ErrActiveRangeOverlap
+	}
+
+	// Activate the range
+	flag.Active = true
+	r.flags[id] = flag
+
+	return nil
+}
+
+// DeactivateFlag deactivates a flag range
+func (r *InMemoryRepository) DeactivateFlag(ctx context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	flag, exists := r.flags[id]
+	if !exists {
+		return ErrFlagNotFound
+	}
+
+	flag.Active = false
+	r.flags[id] = flag
+
+	return nil
+}
+
+// CheckOverlap checks if a time range overlaps with any existing ranges (active or inactive)
+func (r *InMemoryRepository) CheckOverlap(ctx context.Context, project, stage, key string, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.checkOverlapLocked(project, stage, key, validFrom, validTo, excludeID)
+}
+
+// checkOverlapLocked checks overlap without acquiring lock (assumes caller holds lock)
+func (r *InMemoryRepository) checkOverlapLocked(project, stage, key string, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
+	newRange := TimeRange{From: validFrom, To: validTo}
+
+	for _, flag := range r.flags {
+		if flag.ID == excludeID {
+			continue
+		}
+		if flag.Project == project && flag.Stage == stage && flag.Key == key {
+			existingRange := TimeRange{From: flag.ValidFrom, To: flag.ValidTo}
+			if RangesOverlap(newRange, existingRange) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+// checkActiveOverlapLocked checks if a time range overlaps with any active ranges
+func (r *InMemoryRepository) checkActiveOverlapLocked(project, stage, key string, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
+	newRange := TimeRange{From: validFrom, To: validTo}
+
+	for _, flag := range r.flags {
+		if flag.ID == excludeID {
+			continue
+		}
+		if flag.Project == project && flag.Stage == stage && flag.Key == key && flag.Active {
+			existingRange := TimeRange{From: flag.ValidFrom, To: flag.ValidTo}
+			if RangesOverlap(newRange, existingRange) {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
 
 func cloneFlag(flag FeatureFlag) FeatureFlag {

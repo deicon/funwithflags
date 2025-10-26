@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/deicon/funwithflags/internal/flag"
 )
@@ -24,6 +25,8 @@ func TestEvaluateFlag_Success(t *testing.T) {
 		Stage:      "dev",
 		Key:        "checkout",
 		Enabled:    true,
+		Active:     true,
+		ValidFrom:  time.Now(),
 		DefaultKey: "control",
 		Variations: []flag.Variation{
 			{Key: "control", Type: flag.BooleanVariation, Value: false},

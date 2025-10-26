@@ -17,6 +17,7 @@ const (
 
 type AuditLog struct {
 	ID          int64
+	FlagID      *int64
 	Project     string
 	Stage       string
 	FlagKey     string
@@ -60,12 +61,20 @@ func (s *PostgresAuditService) LogAction(ctx context.Context, project, stage, fl
 		}
 	}
 
+	// Determine flag_id (prefer newValue if available, fallback to oldValue)
+	var flagID *int64
+	if newValue != nil && newValue.ID > 0 {
+		flagID = &newValue.ID
+	} else if oldValue != nil && oldValue.ID > 0 {
+		flagID = &oldValue.ID
+	}
+
 	query := `
-		INSERT INTO audit_logs (project, stage, flag_key, action, performed_by, old_value, new_value)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO audit_logs (flag_id, project, stage, flag_key, action, performed_by, old_value, new_value)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 
-	_, err = s.pool.Exec(ctx, query, project, stage, flagKey, action, performedBy, oldJSON, newJSON)
+	_, err = s.pool.Exec(ctx, query, flagID, project, stage, flagKey, action, performedBy, oldJSON, newJSON)
 	if err != nil {
 		return fmt.Errorf("failed to insert audit log: %w", err)
 	}
@@ -79,7 +88,7 @@ func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, project, stage,
 	}
 
 	query := `
-		SELECT id, project, stage, flag_key, action, performed_by, old_value, new_value, created_at
+		SELECT id, flag_id, project, stage, flag_key, action, performed_by, old_value, new_value, created_at
 		FROM audit_logs
 		WHERE project = $1 AND stage = $2 AND flag_key = $3
 		ORDER BY created_at DESC
@@ -97,6 +106,7 @@ func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, project, stage,
 		var log AuditLog
 		err := rows.Scan(
 			&log.ID,
+			&log.FlagID,
 			&log.Project,
 			&log.Stage,
 			&log.FlagKey,

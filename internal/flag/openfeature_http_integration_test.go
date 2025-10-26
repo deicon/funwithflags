@@ -326,6 +326,8 @@ func TestOpenFeatureClientHTTPIntegration(t *testing.T) {
 		Stage:      "dev",
 		Key:        "checkout-flow",
 		Enabled:    true,
+		Active:     true,
+		ValidFrom:  time.Now(),
 		DefaultKey: "control",
 		Variations: []flagpkg.Variation{
 			{Key: "control", Type: flagpkg.BooleanVariation, Value: false},

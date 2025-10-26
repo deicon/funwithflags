@@ -18,6 +18,8 @@ func TestInMemoryRepository_UpsertAndGet(t *testing.T) {
 		Key:        "checkout-experience",
 		Name:       "Checkout Experience",
 		Enabled:    true,
+		Active:     true,
+		ValidFrom:  now,
 		DefaultKey: "control",
 		Variations: []Variation{
 			{Key: "control", Type: BooleanVariation, Value: false},
@@ -64,6 +66,8 @@ func TestInMemoryRepository_UpdateWithOptimisticLock(t *testing.T) {
 		Project:    "test-project",
 		Stage:      "dev",
 		Key:        "search-layout",
+		Active:     true,
+		ValidFrom:  first,
 		DefaultKey: "old",
 		Variations: []Variation{
 			{Key: "old", Type: StringVariation, Value: "classic"},
@@ -103,11 +107,15 @@ func TestInMemoryRepository_UpdateWithOptimisticLock(t *testing.T) {
 
 func TestInMemoryRepository_UpdateConflict(t *testing.T) {
 	repo := NewInMemoryRepository()
+	now := time.Date(2024, 10, 1, 12, 0, 0, 0, time.UTC)
+	repo.now = func() time.Time { return now }
 
 	flag := FeatureFlag{
 		Project:    "test-project",
 		Stage:      "dev",
 		Key:        "recommendations",
+		Active:     true,
+		ValidFrom:  now,
 		DefaultKey: "off",
 		Variations: []Variation{
 			{Key: "off", Type: BooleanVariation, Value: false},
@@ -136,10 +144,15 @@ func TestInMemoryRepository_UpdateConflict(t *testing.T) {
 
 func TestInMemoryRepository_Delete(t *testing.T) {
 	repo := NewInMemoryRepository()
+	now := time.Date(2024, 10, 1, 12, 0, 0, 0, time.UTC)
+	repo.now = func() time.Time { return now }
+
 	flag := FeatureFlag{
 		Project:    "test-project",
 		Stage:      "dev",
 		Key:        "recommendations",
+		Active:     true,
+		ValidFrom:  now,
 		DefaultKey: "off",
 		Variations: []Variation{
 			{Key: "off", Type: BooleanVariation, Value: false},
@@ -150,7 +163,13 @@ func TestInMemoryRepository_Delete(t *testing.T) {
 		t.Fatalf("UpsertFlag initial: %v", err)
 	}
 
-	if err := repo.DeleteFlag(context.Background(), flag.Project, flag.Stage, flag.Key); err != nil {
+	// Get the flag to obtain its ID
+	stored, err := repo.GetFlag(context.Background(), flag.Project, flag.Stage, flag.Key)
+	if err != nil {
+		t.Fatalf("GetFlag: %v", err)
+	}
+
+	if err := repo.DeleteFlag(context.Background(), stored.ID); err != nil {
 		t.Fatalf("DeleteFlag: %v", err)
 	}
 
@@ -161,11 +180,14 @@ func TestInMemoryRepository_Delete(t *testing.T) {
 
 func TestInMemoryRepository_InvalidFlag(t *testing.T) {
 	repo := NewInMemoryRepository()
+	now := time.Date(2024, 10, 1, 12, 0, 0, 0, time.UTC)
 
 	flag := FeatureFlag{
 		Project:    "test-project",
 		Stage:      "dev",
 		Key:        "badflag",
+		Active:     true,
+		ValidFrom:  now,
 		DefaultKey: "missing",
 		Variations: []Variation{
 			{Key: "control", Type: BooleanVariation, Value: true},
