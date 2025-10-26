@@ -14,11 +14,11 @@ type evaluateRequest struct {
 }
 
 type evaluateResponse struct {
-	FlagKey       string      `json:"flagKey"`
-	VariationKey  string      `json:"variationKey"`
-	VariationType string      `json:"variationType"`
-	Value         any         `json:"value"`
-	Reason        string      `json:"reason"`
+	FlagKey       string `json:"flagKey"`
+	VariationKey  string `json:"variationKey"`
+	VariationType string `json:"variationType"`
+	Value         any    `json:"value"`
+	Reason        string `json:"reason"`
 }
 
 func newEvaluateHandler(service *flag.Service) http.HandlerFunc {
