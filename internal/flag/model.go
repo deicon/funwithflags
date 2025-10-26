@@ -22,6 +22,8 @@ type Variation struct {
 }
 
 type FeatureFlag struct {
+	Project     string
+	Stage       string
 	Key         string
 	Name        string
 	Description string
@@ -87,10 +89,10 @@ type Rule struct {
 }
 
 type Repository interface {
-	GetFlag(ctx context.Context, key string) (FeatureFlag, error)
-	ListFlags(ctx context.Context) ([]FeatureFlag, error)
+	GetFlag(ctx context.Context, project, stage, key string) (FeatureFlag, error)
+	ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error)
 	UpsertFlag(ctx context.Context, flag FeatureFlag) error
-	DeleteFlag(ctx context.Context, key string) error
+	DeleteFlag(ctx context.Context, project, stage, key string) error
 }
 
 type Evaluator interface {

@@ -23,15 +23,15 @@ func NewRouter(cfg Config) (*http.ServeMux, error) {
 	mux.Handle("/readyz", http.HandlerFunc(readinessHandler))
 
 	// Evaluation endpoint
-	mux.HandleFunc("POST /api/v1/flags/{key}/evaluate", newEvaluateHandler(cfg.FlagService))
+	mux.HandleFunc("POST /api/v1/{project}/{stage}/flags/{key}/evaluate", newEvaluateHandler(cfg.FlagService))
 
 	// Admin endpoints
-	mux.HandleFunc("GET /api/v1/admin/flags", newListFlagsHandler(cfg.FlagService))
-	mux.HandleFunc("GET /api/v1/admin/flags/{key}", newGetFlagHandler(cfg.FlagService))
-	mux.HandleFunc("POST /api/v1/admin/flags", newCreateFlagHandler(cfg.FlagService))
-	mux.HandleFunc("PUT /api/v1/admin/flags/{key}", newUpdateFlagHandler(cfg.FlagService))
-	mux.HandleFunc("DELETE /api/v1/admin/flags/{key}", newDeleteFlagHandler(cfg.FlagService))
-	mux.HandleFunc("GET /api/v1/admin/flags/{key}/audit", newGetAuditLogsHandler(cfg.FlagService))
+	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags", newListFlagsHandler(cfg.FlagService))
+	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}", newGetFlagHandler(cfg.FlagService))
+	mux.HandleFunc("POST /api/v1/admin/{project}/{stage}/flags", newCreateFlagHandler(cfg.FlagService))
+	mux.HandleFunc("PUT /api/v1/admin/{project}/{stage}/flags/{key}", newUpdateFlagHandler(cfg.FlagService))
+	mux.HandleFunc("DELETE /api/v1/admin/{project}/{stage}/flags/{key}", newDeleteFlagHandler(cfg.FlagService))
+	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}/audit", newGetAuditLogsHandler(cfg.FlagService))
 
 	return mux, nil
 }

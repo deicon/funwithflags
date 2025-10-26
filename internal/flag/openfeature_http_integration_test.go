@@ -22,6 +22,8 @@ import (
 
 type httpProvider struct {
 	baseURL  string
+	project  string
+	stage    string
 	client   *http.Client
 	metadata openfeature.Metadata
 }
@@ -42,9 +44,11 @@ type apiErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func newHTTPProvider(baseURL string) *httpProvider {
+func newHTTPProvider(baseURL, project, stage string) *httpProvider {
 	return &httpProvider{
 		baseURL:  baseURL,
+		project:  project,
+		stage:    stage,
 		metadata: openfeature.Metadata{Name: "funwithflags-http"},
 	}
 }
@@ -158,7 +162,7 @@ func (p *httpProvider) evaluate(ctx context.Context, flagKey string, flatCtx ope
 	}
 
 	base := strings.TrimSuffix(p.baseURL, "/")
-	endpoint := fmt.Sprintf("%s/api/v1/flags/%s/evaluate", base, url.PathEscape(flagKey))
+	endpoint := fmt.Sprintf("%s/api/v1/%s/%s/flags/%s/evaluate", base, url.PathEscape(p.project), url.PathEscape(p.stage), url.PathEscape(flagKey))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		detail := openfeature.ProviderResolutionDetail{
@@ -318,6 +322,8 @@ func TestOpenFeatureClientHTTPIntegration(t *testing.T) {
 	}
 
 	flagDef := flagpkg.FeatureFlag{
+		Project:    "test-project",
+		Stage:      "dev",
 		Key:        "checkout-flow",
 		Enabled:    true,
 		DefaultKey: "control",
@@ -348,7 +354,7 @@ func TestOpenFeatureClientHTTPIntegration(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	provider := newHTTPProvider(server.URL)
+	provider := newHTTPProvider(server.URL, "test-project", "dev")
 	if err := openfeature.SetProviderAndWait(provider); err != nil {
 		t.Fatalf("SetProviderAndWait: %v", err)
 	}

@@ -13,6 +13,8 @@ func TestInMemoryRepository_UpsertAndGet(t *testing.T) {
 	repo.now = func() time.Time { return now }
 
 	flag := FeatureFlag{
+		Project:    "test-project",
+		Stage:      "dev",
 		Key:        "checkout-experience",
 		Name:       "Checkout Experience",
 		Enabled:    true,
@@ -27,7 +29,7 @@ func TestInMemoryRepository_UpsertAndGet(t *testing.T) {
 		t.Fatalf("UpsertFlag: %v", err)
 	}
 
-	stored, err := repo.GetFlag(context.Background(), flag.Key)
+	stored, err := repo.GetFlag(context.Background(), flag.Project, flag.Stage, flag.Key)
 	if err != nil {
 		t.Fatalf("GetFlag: %v", err)
 	}
@@ -42,7 +44,7 @@ func TestInMemoryRepository_UpsertAndGet(t *testing.T) {
 
 	stored.Variations[0].Value = true
 
-	original, err := repo.GetFlag(context.Background(), flag.Key)
+	original, err := repo.GetFlag(context.Background(), flag.Project, flag.Stage, flag.Key)
 	if err != nil {
 		t.Fatalf("GetFlag: %v", err)
 	}
@@ -59,6 +61,8 @@ func TestInMemoryRepository_UpdateWithOptimisticLock(t *testing.T) {
 
 	repo.now = func() time.Time { return first }
 	flag := FeatureFlag{
+		Project:    "test-project",
+		Stage:      "dev",
 		Key:        "search-layout",
 		DefaultKey: "old",
 		Variations: []Variation{
@@ -70,7 +74,7 @@ func TestInMemoryRepository_UpdateWithOptimisticLock(t *testing.T) {
 		t.Fatalf("UpsertFlag initial: %v", err)
 	}
 
-	current, err := repo.GetFlag(context.Background(), flag.Key)
+	current, err := repo.GetFlag(context.Background(), flag.Project, flag.Stage, flag.Key)
 	if err != nil {
 		t.Fatalf("GetFlag: %v", err)
 	}
@@ -81,7 +85,7 @@ func TestInMemoryRepository_UpdateWithOptimisticLock(t *testing.T) {
 		t.Fatalf("UpsertFlag update: %v", err)
 	}
 
-	updated, err := repo.GetFlag(context.Background(), flag.Key)
+	updated, err := repo.GetFlag(context.Background(), flag.Project, flag.Stage, flag.Key)
 	if err != nil {
 		t.Fatalf("GetFlag: %v", err)
 	}
@@ -101,6 +105,8 @@ func TestInMemoryRepository_UpdateConflict(t *testing.T) {
 	repo := NewInMemoryRepository()
 
 	flag := FeatureFlag{
+		Project:    "test-project",
+		Stage:      "dev",
 		Key:        "recommendations",
 		DefaultKey: "off",
 		Variations: []Variation{
@@ -113,8 +119,15 @@ func TestInMemoryRepository_UpdateConflict(t *testing.T) {
 		t.Fatalf("UpsertFlag initial: %v", err)
 	}
 
-	stale := flag
-	stale.UpdatedAt = time.Time{}
+	// Get the current flag to see its UpdatedAt
+	current, err := repo.GetFlag(context.Background(), flag.Project, flag.Stage, flag.Key)
+	if err != nil {
+		t.Fatalf("GetFlag: %v", err)
+	}
+
+	// Create a stale version with a different UpdatedAt
+	stale := current
+	stale.UpdatedAt = current.UpdatedAt.Add(-time.Hour)
 
 	if err := repo.UpsertFlag(context.Background(), stale); !errors.Is(err, ErrFlagConflict) {
 		t.Fatalf("expected conflict error, got %v", err)
@@ -124,6 +137,8 @@ func TestInMemoryRepository_UpdateConflict(t *testing.T) {
 func TestInMemoryRepository_Delete(t *testing.T) {
 	repo := NewInMemoryRepository()
 	flag := FeatureFlag{
+		Project:    "test-project",
+		Stage:      "dev",
 		Key:        "recommendations",
 		DefaultKey: "off",
 		Variations: []Variation{
@@ -135,11 +150,11 @@ func TestInMemoryRepository_Delete(t *testing.T) {
 		t.Fatalf("UpsertFlag initial: %v", err)
 	}
 
-	if err := repo.DeleteFlag(context.Background(), flag.Key); err != nil {
+	if err := repo.DeleteFlag(context.Background(), flag.Project, flag.Stage, flag.Key); err != nil {
 		t.Fatalf("DeleteFlag: %v", err)
 	}
 
-	if _, err := repo.GetFlag(context.Background(), flag.Key); !errors.Is(err, ErrFlagNotFound) {
+	if _, err := repo.GetFlag(context.Background(), flag.Project, flag.Stage, flag.Key); !errors.Is(err, ErrFlagNotFound) {
 		t.Fatalf("expected not found after delete, got %v", err)
 	}
 }
@@ -148,6 +163,8 @@ func TestInMemoryRepository_InvalidFlag(t *testing.T) {
 	repo := NewInMemoryRepository()
 
 	flag := FeatureFlag{
+		Project:    "test-project",
+		Stage:      "dev",
 		Key:        "badflag",
 		DefaultKey: "missing",
 		Variations: []Variation{

@@ -12,7 +12,19 @@ import (
 
 func newListFlagsHandler(service *flag.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		flags, err := service.ListFlags(r.Context())
+		project := r.PathValue("project")
+		if project == "" {
+			writeError(w, http.StatusBadRequest, "project is required")
+			return
+		}
+
+		stage := r.PathValue("stage")
+		if stage == "" {
+			writeError(w, http.StatusBadRequest, "stage is required")
+			return
+		}
+
+		flags, err := service.ListFlags(r.Context(), project, stage)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list flags: %v", err))
 			return
@@ -26,13 +38,25 @@ func newListFlagsHandler(service *flag.Service) http.HandlerFunc {
 
 func newGetFlagHandler(service *flag.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if project == "" {
+			writeError(w, http.StatusBadRequest, "project is required")
+			return
+		}
+
+		stage := r.PathValue("stage")
+		if stage == "" {
+			writeError(w, http.StatusBadRequest, "stage is required")
+			return
+		}
+
 		key := r.PathValue("key")
 		if key == "" {
 			writeError(w, http.StatusBadRequest, "flag key is required")
 			return
 		}
 
-		f, err := service.GetFlag(r.Context(), key)
+		f, err := service.GetFlag(r.Context(), project, stage, key)
 		if err != nil {
 			if errors.Is(err, flag.ErrFlagNotFound) {
 				writeError(w, http.StatusNotFound, "flag not found")
@@ -48,11 +72,27 @@ func newGetFlagHandler(service *flag.Service) http.HandlerFunc {
 
 func newCreateFlagHandler(service *flag.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if project == "" {
+			writeError(w, http.StatusBadRequest, "project is required")
+			return
+		}
+
+		stage := r.PathValue("stage")
+		if stage == "" {
+			writeError(w, http.StatusBadRequest, "stage is required")
+			return
+		}
+
 		var f flag.FeatureFlag
 		if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
 			return
 		}
+
+		// Set project and stage from path
+		f.Project = project
+		f.Stage = stage
 
 		performedBy := r.Header.Get("X-User-ID")
 		if performedBy == "" {
@@ -77,6 +117,18 @@ func newCreateFlagHandler(service *flag.Service) http.HandlerFunc {
 
 func newUpdateFlagHandler(service *flag.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if project == "" {
+			writeError(w, http.StatusBadRequest, "project is required")
+			return
+		}
+
+		stage := r.PathValue("stage")
+		if stage == "" {
+			writeError(w, http.StatusBadRequest, "stage is required")
+			return
+		}
+
 		key := r.PathValue("key")
 		if key == "" {
 			writeError(w, http.StatusBadRequest, "flag key is required")
@@ -89,7 +141,9 @@ func newUpdateFlagHandler(service *flag.Service) http.HandlerFunc {
 			return
 		}
 
-		// Ensure the key matches
+		// Set project, stage, and key from path
+		f.Project = project
+		f.Stage = stage
 		f.Key = key
 
 		performedBy := r.Header.Get("X-User-ID")
@@ -123,6 +177,18 @@ func newUpdateFlagHandler(service *flag.Service) http.HandlerFunc {
 
 func newDeleteFlagHandler(service *flag.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if project == "" {
+			writeError(w, http.StatusBadRequest, "project is required")
+			return
+		}
+
+		stage := r.PathValue("stage")
+		if stage == "" {
+			writeError(w, http.StatusBadRequest, "stage is required")
+			return
+		}
+
 		key := r.PathValue("key")
 		if key == "" {
 			writeError(w, http.StatusBadRequest, "flag key is required")
@@ -134,7 +200,7 @@ func newDeleteFlagHandler(service *flag.Service) http.HandlerFunc {
 			performedBy = "unknown"
 		}
 
-		if err := service.DeleteFlag(r.Context(), key, performedBy); err != nil {
+		if err := service.DeleteFlag(r.Context(), project, stage, key, performedBy); err != nil {
 			if errors.Is(err, flag.ErrFlagNotFound) {
 				writeError(w, http.StatusNotFound, "flag not found")
 				return
@@ -152,6 +218,18 @@ func newDeleteFlagHandler(service *flag.Service) http.HandlerFunc {
 
 func newGetAuditLogsHandler(service *flag.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if project == "" {
+			writeError(w, http.StatusBadRequest, "project is required")
+			return
+		}
+
+		stage := r.PathValue("stage")
+		if stage == "" {
+			writeError(w, http.StatusBadRequest, "stage is required")
+			return
+		}
+
 		key := r.PathValue("key")
 		if key == "" {
 			writeError(w, http.StatusBadRequest, "flag key is required")
@@ -169,7 +247,7 @@ func newGetAuditLogsHandler(service *flag.Service) http.HandlerFunc {
 			}
 		}
 
-		logs, err := service.GetAuditLogs(r.Context(), key, limit)
+		logs, err := service.GetAuditLogs(r.Context(), project, stage, key, limit)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to get audit logs: %v", err))
 			return

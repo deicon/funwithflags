@@ -25,7 +25,7 @@ func New() (*App, error) {
 	ctx := context.Background()
 
 	// Determine storage type from environment
-	storageType := getEnv("STORAGE_TYPE", "memory")
+	storageType := getEnv("STORAGE_TYPE", "postgres")
 
 	var repo flag.Repository
 	var auditService flag.AuditService

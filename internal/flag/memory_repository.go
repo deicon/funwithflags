@@ -22,11 +22,12 @@ func NewInMemoryRepository() *InMemoryRepository {
 	}
 }
 
-func (r *InMemoryRepository) GetFlag(ctx context.Context, key string) (FeatureFlag, error) {
+func (r *InMemoryRepository) GetFlag(ctx context.Context, project, stage, key string) (FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	flag, ok := r.flags[key]
+	compositeKey := makeCompositeKey(project, stage, key)
+	flag, ok := r.flags[compositeKey]
 	if !ok {
 		return FeatureFlag{}, ErrFlagNotFound
 	}
@@ -34,13 +35,15 @@ func (r *InMemoryRepository) GetFlag(ctx context.Context, key string) (FeatureFl
 	return cloneFlag(flag), nil
 }
 
-func (r *InMemoryRepository) ListFlags(ctx context.Context) ([]FeatureFlag, error) {
+func (r *InMemoryRepository) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	flags := make([]FeatureFlag, 0, len(r.flags))
+	flags := make([]FeatureFlag, 0)
 	for _, f := range r.flags {
-		flags = append(flags, cloneFlag(f))
+		if f.Project == project && f.Stage == stage {
+			flags = append(flags, cloneFlag(f))
+		}
 	}
 
 	return flags, nil
@@ -54,36 +57,42 @@ func (r *InMemoryRepository) UpsertFlag(ctx context.Context, flag FeatureFlag) e
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	compositeKey := makeCompositeKey(flag.Project, flag.Stage, flag.Key)
 	now := r.now()
-	existing, exists := r.flags[flag.Key]
+	existing, exists := r.flags[compositeKey]
 	if !exists {
 		flag.CreatedAt = now
 		flag.UpdatedAt = now
-		r.flags[flag.Key] = cloneFlag(flag)
+		r.flags[compositeKey] = cloneFlag(flag)
 		return nil
 	}
 
-	if !flag.UpdatedAt.Equal(existing.UpdatedAt) {
+	if !flag.UpdatedAt.IsZero() && !flag.UpdatedAt.Equal(existing.UpdatedAt) {
 		return ErrFlagConflict
 	}
 
 	flag.CreatedAt = existing.CreatedAt
 	flag.UpdatedAt = now
-	r.flags[flag.Key] = cloneFlag(flag)
+	r.flags[compositeKey] = cloneFlag(flag)
 
 	return nil
 }
 
-func (r *InMemoryRepository) DeleteFlag(ctx context.Context, key string) error {
+func (r *InMemoryRepository) DeleteFlag(ctx context.Context, project, stage, key string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.flags[key]; !exists {
+	compositeKey := makeCompositeKey(project, stage, key)
+	if _, exists := r.flags[compositeKey]; !exists {
 		return ErrFlagNotFound
 	}
 
-	delete(r.flags, key)
+	delete(r.flags, compositeKey)
 	return nil
+}
+
+func makeCompositeKey(project, stage, key string) string {
+	return fmt.Sprintf("%s:%s:%s", project, stage, key)
 }
 
 func cloneFlag(flag FeatureFlag) FeatureFlag {

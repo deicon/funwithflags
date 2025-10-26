@@ -17,6 +17,8 @@ const (
 
 type AuditLog struct {
 	ID          int64
+	Project     string
+	Stage       string
 	FlagKey     string
 	Action      string
 	PerformedBy string
@@ -26,8 +28,8 @@ type AuditLog struct {
 }
 
 type AuditService interface {
-	LogAction(ctx context.Context, flagKey, action, performedBy string, oldValue, newValue *FeatureFlag) error
-	GetAuditLogs(ctx context.Context, flagKey string, limit int) ([]AuditLog, error)
+	LogAction(ctx context.Context, project, stage, flagKey, action, performedBy string, oldValue, newValue *FeatureFlag) error
+	GetAuditLogs(ctx context.Context, project, stage, flagKey string, limit int) ([]AuditLog, error)
 }
 
 type PostgresAuditService struct {
@@ -40,7 +42,7 @@ func NewPostgresAuditService(pool *pgxpool.Pool) *PostgresAuditService {
 	}
 }
 
-func (s *PostgresAuditService) LogAction(ctx context.Context, flagKey, action, performedBy string, oldValue, newValue *FeatureFlag) error {
+func (s *PostgresAuditService) LogAction(ctx context.Context, project, stage, flagKey, action, performedBy string, oldValue, newValue *FeatureFlag) error {
 	var oldJSON, newJSON json.RawMessage
 	var err error
 
@@ -59,11 +61,11 @@ func (s *PostgresAuditService) LogAction(ctx context.Context, flagKey, action, p
 	}
 
 	query := `
-		INSERT INTO audit_logs (flag_key, action, performed_by, old_value, new_value)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO audit_logs (project, stage, flag_key, action, performed_by, old_value, new_value)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
-	_, err = s.pool.Exec(ctx, query, flagKey, action, performedBy, oldJSON, newJSON)
+	_, err = s.pool.Exec(ctx, query, project, stage, flagKey, action, performedBy, oldJSON, newJSON)
 	if err != nil {
 		return fmt.Errorf("failed to insert audit log: %w", err)
 	}
@@ -71,20 +73,20 @@ func (s *PostgresAuditService) LogAction(ctx context.Context, flagKey, action, p
 	return nil
 }
 
-func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, flagKey string, limit int) ([]AuditLog, error) {
+func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, project, stage, flagKey string, limit int) ([]AuditLog, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 
 	query := `
-		SELECT id, flag_key, action, performed_by, old_value, new_value, created_at
+		SELECT id, project, stage, flag_key, action, performed_by, old_value, new_value, created_at
 		FROM audit_logs
-		WHERE flag_key = $1
+		WHERE project = $1 AND stage = $2 AND flag_key = $3
 		ORDER BY created_at DESC
-		LIMIT $2
+		LIMIT $4
 	`
 
-	rows, err := s.pool.Query(ctx, query, flagKey, limit)
+	rows, err := s.pool.Query(ctx, query, project, stage, flagKey, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
@@ -95,6 +97,8 @@ func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, flagKey string,
 		var log AuditLog
 		err := rows.Scan(
 			&log.ID,
+			&log.Project,
+			&log.Stage,
 			&log.FlagKey,
 			&log.Action,
 			&log.PerformedBy,
