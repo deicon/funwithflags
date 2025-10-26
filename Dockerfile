@@ -13,6 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/funwithflags ./cmd/se
 FROM gcr.io/distroless/base-debian12
 
 COPY --from=builder /bin/funwithflags /bin/funwithflags
+COPY --from=builder /app/migrations /migrations
 
 EXPOSE 8080
 
