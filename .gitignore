@@ -1,0 +1,17 @@
+# Binaries and build artifacts
+bin/
+dist/
+*.exe
+*.test
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE/editor config
+.idea/
+.vscode/
+
+# Logs and coverage
+*.log
+coverage.out
