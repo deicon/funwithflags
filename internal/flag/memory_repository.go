@@ -10,10 +10,10 @@ import (
 )
 
 type InMemoryRepository struct {
-	mu      sync.RWMutex
-	flags   map[int64]FeatureFlag // flags by ID
-	nextID  int64
-	now     func() time.Time
+	mu     sync.RWMutex
+	flags  map[int64]FeatureFlag // flags by ID
+	nextID int64
+	now    func() time.Time
 }
 
 func NewInMemoryRepository() *InMemoryRepository {
