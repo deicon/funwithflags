@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/deicon/funwithflags/internal/flag"
 	"github.com/deicon/funwithflags/internal/httpserver"
 )
 
@@ -15,12 +16,24 @@ type App struct {
 }
 
 func New() (*App, error) {
-	handler := httpserver.NewRouter()
+	repo := flag.NewInMemoryRepository()
+	engine := flag.NewEngine()
+	flagService, err := flag.NewService(repo, engine)
+	if err != nil {
+		return nil, fmt.Errorf("init flag service: %w", err)
+	}
+
+	router, err := httpserver.NewRouter(httpserver.Config{
+		FlagService: flagService,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("init router: %w", err)
+	}
 
 	return &App{
 		server: &http.Server{
 			Addr:              ":8080",
-			Handler:           handler,
+			Handler:           router,
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 	}, nil

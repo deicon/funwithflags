@@ -1,10 +1,25 @@
 package httpserver
 
-import "net/http"
+import (
+	"fmt"
+	"net/http"
 
-func NewRouter() http.Handler {
+	"github.com/deicon/funwithflags/internal/flag"
+)
+
+type Config struct {
+	FlagService *flag.Service
+}
+
+func NewRouter(cfg Config) (*http.ServeMux, error) {
+	if cfg.FlagService == nil {
+		return nil, fmt.Errorf("flag service is required")
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", http.HandlerFunc(livenessHandler))
 	mux.Handle("/readyz", http.HandlerFunc(readinessHandler))
-	return mux
+	mux.HandleFunc("POST /api/v1/flags/{key}/evaluate", newEvaluateHandler(cfg.FlagService))
+
+	return mux, nil
 }
