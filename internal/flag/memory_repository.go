@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
 	"sync"
 	"time"
 )
@@ -90,29 +91,24 @@ func (r *InMemoryRepository) GetFlagRanges(ctx context.Context, project, stage, 
 	return flags, nil
 }
 
-// ListFlags lists all currently active flags at the current time
+// ListFlags lists all flag ranges for a project/stage ordered by key and recency.
 func (r *InMemoryRepository) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	now := r.now()
-	flagsByKey := make(map[string]FeatureFlag)
-
+	flags := make([]FeatureFlag, 0)
 	for _, flag := range r.flags {
-		if flag.Project == project && flag.Stage == stage && flag.Active {
-			if IsValidInRange(now, flag.ValidFrom, flag.ValidTo) {
-				existing, exists := flagsByKey[flag.Key]
-				if !exists || flag.ValidFrom.After(existing.ValidFrom) {
-					flagsByKey[flag.Key] = flag
-				}
-			}
+		if flag.Project == project && flag.Stage == stage {
+			flags = append(flags, cloneFlag(flag))
 		}
 	}
 
-	flags := make([]FeatureFlag, 0, len(flagsByKey))
-	for _, flag := range flagsByKey {
-		flags = append(flags, cloneFlag(flag))
-	}
+	sort.SliceStable(flags, func(i, j int) bool {
+		if flags[i].Key == flags[j].Key {
+			return flags[i].ValidFrom.After(flags[j].ValidFrom)
+		}
+		return flags[i].Key < flags[j].Key
+	})
 
 	return flags, nil
 }

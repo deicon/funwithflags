@@ -74,6 +74,14 @@ const formatDateTime = (value?: string) => {
   return date.toLocaleString();
 };
 
+const toTimestamp = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const timestamp = new Date(value).getTime();
+  return Number.isNaN(timestamp) ? null : timestamp;
+};
+
 const createDefaultFlagForm = () => ({
   key: "",
   name: "",
@@ -107,6 +115,8 @@ export default function FlagsPanel({
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [modalState, setModalState] = useState<ModalState>(null);
   const [createForm, setCreateForm] = useState(() => createDefaultFlagForm());
+  const [rangeStart, setRangeStart] = useState(() => nowIsoString());
+  const [rangeEnd, setRangeEnd] = useState("");
   const [editForm, setEditForm] = useState({
     name: "",
     description: "",
@@ -119,7 +129,7 @@ export default function FlagsPanel({
 
   const visibleFlags = useMemo(() => {
     const normalizedFilter = filter.trim().toLowerCase();
-    const filtered = normalizedFilter
+    const textFiltered = normalizedFilter
       ? flags.filter((flag) => {
           const haystacks = [
             flag.key,
@@ -133,7 +143,23 @@ export default function FlagsPanel({
         })
       : flags;
 
-    const sorted = [...filtered].sort((a, b) => {
+    const startTimestamp = toTimestamp(rangeStart);
+    const endTimestamp = toTimestamp(rangeEnd);
+
+    const rangeFiltered = textFiltered.filter((flag) => {
+      const flagStart = toTimestamp(flag.validFrom) ?? Number.NEGATIVE_INFINITY;
+      const flagEnd = toTimestamp(flag.validTo) ?? Number.POSITIVE_INFINITY;
+
+      if (startTimestamp !== null && flagEnd < startTimestamp) {
+        return false;
+      }
+      if (endTimestamp !== null && flagStart > endTimestamp) {
+        return false;
+      }
+      return true;
+    });
+
+    const sorted = [...rangeFiltered].sort((a, b) => {
       const aValue = sortBy === "key" ? a.key : a.name;
       const bValue = sortBy === "key" ? b.key : b.name;
       const comparison = aValue.localeCompare(bValue);
@@ -141,12 +167,14 @@ export default function FlagsPanel({
     });
 
     return sorted;
-  }, [filter, flags, sortBy, sortDirection]);
+  }, [filter, flags, rangeEnd, rangeStart, sortBy, sortDirection]);
 
   useEffect(() => {
     setMessage(null);
     setError(null);
     setFilter("");
+    setRangeStart(nowIsoString());
+    setRangeEnd("");
     setModalState(null);
   }, [selectedProjectKey, selectedStageKey]);
 
@@ -287,6 +315,26 @@ export default function FlagsPanel({
     }
   };
 
+  const handleCloseRange = async (flag: FeatureFlag) => {
+    if (pending) {
+      return;
+    }
+    setPending(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const now = nowIsoString();
+      await onUpdate(flag, {
+        validTo: now
+      });
+      setMessage(`Flag ${flag.key} closed at ${formatDateTime(now)}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to close flag range");
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <div className="panel" aria-label="Flags">
       <div>
@@ -354,6 +402,27 @@ export default function FlagsPanel({
               </option>
             ))}
           </select>
+        </div>
+      </div>
+
+      <div className="selection-grid">
+        <div className="form-field">
+          <label htmlFor="flag-range-start">Valid from</label>
+          <input
+            id="flag-range-start"
+            type="datetime-local"
+            value={toDateTimeLocalValue(rangeStart)}
+            onChange={(event) => setRangeStart(fromDateTimeLocalValue(event.target.value))}
+          />
+        </div>
+        <div className="form-field">
+          <label htmlFor="flag-range-end">Valid to</label>
+          <input
+            id="flag-range-end"
+            type="datetime-local"
+            value={toDateTimeLocalValue(rangeEnd)}
+            onChange={(event) => setRangeEnd(fromDateTimeLocalValue(event.target.value))}
+          />
         </div>
       </div>
 
@@ -431,6 +500,16 @@ export default function FlagsPanel({
                   <td>{flag.defaultKey}</td>
                   <td>
                     <div className="table-actions">
+                      {!flag.validTo ? (
+                        <button
+                          type="button"
+                          className="button secondary"
+                          onClick={() => handleCloseRange(flag)}
+                          disabled={pending}
+                        >
+                          Close Range
+                        </button>
+                      ) : null}
                       <button type="button" className="button secondary" onClick={() => openEditModal(flag)} disabled={pending}>
                         Edit
                       </button>
