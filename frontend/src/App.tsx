@@ -30,6 +30,7 @@ export default function App() {
   const [selectedStageKey, setSelectedStageKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [activeSection, setActiveSection] = useState<"flags" | "projects-stages" | "users">("flags");
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.key === selectedProjectKey) ?? null,
@@ -247,8 +248,23 @@ export default function App() {
     loadUsers().catch((err) => handleError(err instanceof Error ? err.message : "Failed to load users"));
   }, [handleError, isAdmin, isAuthenticated, loadUsers]);
 
+  useEffect(() => {
+    if (!isAdmin && activeSection === "users") {
+      setActiveSection("projects-stages");
+    }
+  }, [activeSection, isAdmin]);
+
   const handleCreateFlag = useCallback(
-    async (input: { key: string; name: string; description?: string; enabled: boolean; defaultKey: string }) => {
+    async (input: {
+      key: string;
+      name: string;
+      description?: string;
+      enabled: boolean;
+      active: boolean;
+      defaultKey: string;
+      validFrom: string;
+      validTo?: string;
+    }) => {
       if (!selectedProject || !selectedStage) {
         throw new Error("Select a project and stage first");
       }
@@ -257,9 +273,10 @@ export default function App() {
         name: input.name.trim(),
         description: input.description?.trim() || undefined,
         enabled: input.enabled,
-        active: true,
+        active: input.active,
         defaultKey: input.defaultKey,
-        validFrom: new Date().toISOString(),
+        validFrom: input.validFrom,
+        ...(input.validTo ? { validTo: input.validTo } : {}),
         variations: [
           { key: "control", type: "boolean", value: false, description: "Feature off" },
           { key: "enabled", type: "boolean", value: true, description: "Feature on" }
@@ -299,9 +316,6 @@ export default function App() {
 
   const handleDeleteFlag = useCallback(
     async (flag: FeatureFlag) => {
-      if (!window.confirm(`Delete flag ${flag.key}?`)) {
-        return;
-      }
       await authorizedFetch(`/api/v1/admin/flags/${flag.id}`, {
         method: "DELETE"
       });
@@ -359,6 +373,12 @@ export default function App() {
     return <LoginForm />;
   }
 
+  const sections: Array<{ key: "users" | "projects-stages" | "flags"; label: string; hidden?: boolean }> = [
+    { key: "users", label: "Users", hidden: !isAdmin },
+    { key: "projects-stages", label: "Projects & Stages" },
+    { key: "flags", label: "Flags" }
+  ];
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -378,54 +398,85 @@ export default function App() {
         </div>
       </header>
 
-      {error ? (
-        <div className="notification error" role="alert" style={{ margin: "1rem 1.5rem" }}>
-          {error}
-        </div>
-      ) : null}
-      {loading ? (
-        <div className="notification" role="status" style={{ margin: "0 1.5rem" }}>
-          Loading…
-        </div>
-      ) : null}
+      <div className="app-body">
+        <nav className="sidebar" aria-label="Main navigation">
+          <span className="sidebar-title">Manage</span>
+          {sections
+            .filter((section) => !section.hidden)
+            .map((section) => (
+              <button
+                key={section.key}
+                type="button"
+                className={`nav-button${activeSection === section.key ? " active" : ""}`}
+                onClick={() => setActiveSection(section.key)}
+              >
+                {section.label}
+              </button>
+            ))}
+        </nav>
+        <main className="app-content">
+          {error ? (
+            <div className="notification error" role="alert">
+              {error}
+            </div>
+          ) : null}
+          {loading ? (
+            <div className="notification" role="status">
+              Loading…
+            </div>
+          ) : null}
 
-      <main className="app-content">
-        {isAdmin ? (
-          <UsersPanel
-            users={users}
-            currentUsername={user?.username ?? null}
-            onCreate={handleCreateUser}
-            onResetPassword={handleResetUserPassword}
-            onChangeRole={handleChangeUserRole}
-            onDelete={handleDeleteUser}
-          />
-        ) : null}
-        <ProjectsPanel
-          projects={projects}
-          selectedProjectKey={selectedProjectKey}
-          onSelect={handleSelectProject}
-          onCreate={handleCreateProject}
-          onUpdate={handleUpdateProject}
-          onDelete={handleDeleteProject}
-        />
-        <StagesPanel
-          project={selectedProject}
-          stages={stages}
-          selectedStageKey={selectedStageKey}
-          onSelect={handleSelectStage}
-          onCreate={handleCreateStage}
-          onUpdate={handleUpdateStage}
-          onDelete={handleDeleteStage}
-        />
-        <FlagsPanel
-          project={selectedProject}
-          stage={selectedStage}
-          flags={flags}
-          onCreate={handleCreateFlag}
-          onUpdate={handleUpdateFlag}
-          onDelete={handleDeleteFlag}
-        />
-      </main>
+          {activeSection === "users" && isAdmin ? (
+            <UsersPanel
+              users={users}
+              currentUsername={user?.username ?? null}
+              onCreate={handleCreateUser}
+              onResetPassword={handleResetUserPassword}
+              onChangeRole={handleChangeUserRole}
+              onDelete={handleDeleteUser}
+            />
+          ) : null}
+
+          {activeSection === "projects-stages" ? (
+            <div className="content-stack">
+              <ProjectsPanel
+                projects={projects}
+                selectedProjectKey={selectedProjectKey}
+                onSelect={handleSelectProject}
+                onCreate={handleCreateProject}
+                onUpdate={handleUpdateProject}
+                onDelete={handleDeleteProject}
+              />
+              <StagesPanel
+                project={selectedProject}
+                stages={stages}
+                selectedStageKey={selectedStageKey}
+                onSelect={handleSelectStage}
+                onCreate={handleCreateStage}
+                onUpdate={handleUpdateStage}
+                onDelete={handleDeleteStage}
+              />
+            </div>
+          ) : null}
+
+          {activeSection === "flags" ? (
+            <FlagsPanel
+              projects={projects}
+              stages={stages}
+              project={selectedProject}
+              stage={selectedStage}
+              selectedProjectKey={selectedProjectKey}
+              selectedStageKey={selectedStageKey}
+              flags={flags}
+              onSelectProject={handleSelectProject}
+              onSelectStage={handleSelectStage}
+              onCreate={handleCreateFlag}
+              onUpdate={handleUpdateFlag}
+              onDelete={handleDeleteFlag}
+            />
+          ) : null}
+        </main>
+      </div>
     </div>
   );
 }
