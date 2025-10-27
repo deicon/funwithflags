@@ -15,28 +15,28 @@ const (
 )
 
 type Variation struct {
-	Key         string
-	Type        VariationType
-	Value       any
-	Description string
+	Key         string        `json:"key"`
+	Type        VariationType `json:"type"`
+	Value       any           `json:"value"`
+	Description string        `json:"description,omitempty"`
 }
 
 type FeatureFlag struct {
-	ID          int64
-	Project     string
-	Stage       string
-	Key         string
-	Name        string
-	Description string
-	Enabled     bool
-	Active      bool
-	ValidFrom   time.Time
-	ValidTo     *time.Time
-	DefaultKey  string
-	Variations  []Variation
-	Rules       []Rule
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          int64       `json:"id"`
+	Project     string      `json:"project"`
+	Stage       string      `json:"stage"`
+	Key         string      `json:"key"`
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	Enabled     bool        `json:"enabled"`
+	Active      bool        `json:"active"`
+	ValidFrom   time.Time   `json:"validFrom"`
+	ValidTo     *time.Time  `json:"validTo,omitempty"`
+	DefaultKey  string      `json:"defaultKey"`
+	Variations  []Variation `json:"variations"`
+	Rules       []Rule      `json:"rules"`
+	CreatedAt   time.Time   `json:"createdAt"`
+	UpdatedAt   time.Time   `json:"updatedAt"`
 }
 
 type EvaluationContext map[string]any
@@ -68,28 +68,28 @@ const (
 )
 
 type Condition struct {
-	Attribute string
-	Operator  MatcherOperator
-	Value     any
+	Attribute string          `json:"attribute"`
+	Operator  MatcherOperator `json:"operator"`
+	Value     any             `json:"value"`
 }
 
 type RolloutBucket struct {
-	VariationKey string
-	Weight       float64
+	VariationKey string  `json:"variationKey"`
+	Weight       float64 `json:"weight"`
 }
 
 type PercentageRollout struct {
-	Attribute string
-	Seed      string
-	Buckets   []RolloutBucket
+	Attribute string          `json:"attribute"`
+	Seed      string          `json:"seed"`
+	Buckets   []RolloutBucket `json:"buckets"`
 }
 
 type Rule struct {
-	ID           string
-	Description  string
-	Conditions   []Condition
-	VariationKey string
-	Rollout      *PercentageRollout
+	ID           string             `json:"id"`
+	Description  string             `json:"description,omitempty"`
+	Conditions   []Condition        `json:"conditions,omitempty"`
+	VariationKey string             `json:"variationKey,omitempty"`
+	Rollout      *PercentageRollout `json:"rollout,omitempty"`
 }
 
 type Repository interface {

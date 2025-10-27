@@ -10,9 +10,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/deicon/funwithflags/internal/auth"
 	"github.com/deicon/funwithflags/internal/database"
 	"github.com/deicon/funwithflags/internal/flag"
 	"github.com/deicon/funwithflags/internal/httpserver"
+	"github.com/deicon/funwithflags/internal/project"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,9 +29,21 @@ func New() (*App, error) {
 	// Determine storage type from environment
 	storageType := getEnv("STORAGE_TYPE", "postgres")
 
+	authSecret := getEnv("JWT_SECRET", "funwithflags-dev-secret")
+	authAccessTTL := getEnvDuration("AUTH_ACCESS_TOKEN_TTL", 0)
+	authRefreshTTL := getEnvDuration("AUTH_REFRESH_TOKEN_TTL", 0)
+
+	adminUsername := getEnv("AUTH_ADMIN_USERNAME", "admin")
+	adminPassword := getEnv("AUTH_ADMIN_PASSWORD", "admin123")
+
+	defaultUsername := getEnv("AUTH_USER_USERNAME", "user")
+	defaultPassword := getEnv("AUTH_USER_PASSWORD", "user123")
+
 	var repo flag.Repository
 	var auditService flag.AuditService
 	var pool *pgxpool.Pool
+	var projectRepo project.Repository
+	var authRepo auth.Repository
 
 	switch storageType {
 	case "postgres":
@@ -56,10 +70,14 @@ func New() (*App, error) {
 
 		repo = flag.NewPostgresRepository(pool)
 		auditService = flag.NewPostgresAuditService(pool)
+		projectRepo = project.NewPostgresRepository(pool)
+		authRepo = auth.NewPostgresRepository(pool)
 		log.Println("Using PostgreSQL storage")
 
 	case "memory":
 		repo = flag.NewInMemoryRepository()
+		projectRepo = project.NewInMemoryRepository()
+		authRepo = auth.NewInMemoryRepository()
 		log.Println("Using in-memory storage")
 
 	default:
@@ -79,8 +97,59 @@ func New() (*App, error) {
 		flagService.SetAuditService(auditService)
 	}
 
+	authService, err := auth.NewService(authRepo)
+	if err != nil {
+		if pool != nil {
+			pool.Close()
+		}
+		return nil, fmt.Errorf("init auth service: %w", err)
+	}
+
+	if err := authService.EnsureUser(ctx, adminUsername, adminPassword, auth.RoleAdmin); err != nil {
+		if pool != nil {
+			pool.Close()
+		}
+		return nil, fmt.Errorf("ensure admin user: %w", err)
+	}
+	if defaultUsername != "" && defaultPassword != "" && defaultUsername != adminUsername {
+		if err := authService.EnsureUser(ctx, defaultUsername, defaultPassword, auth.RoleUser); err != nil {
+			if pool != nil {
+				pool.Close()
+			}
+			return nil, fmt.Errorf("ensure default user: %w", err)
+		}
+	}
+
+	authManager, err := auth.NewManager(auth.Config{
+		Secret:          authSecret,
+		AccessTokenTTL:  authAccessTTL,
+		RefreshTokenTTL: authRefreshTTL,
+		Repository:      authRepo,
+	})
+	if err != nil {
+		if pool != nil {
+			pool.Close()
+		}
+		return nil, fmt.Errorf("init auth manager: %w", err)
+	}
+
+	projectService, err := project.NewService(projectRepo)
+	if err != nil {
+		if pool != nil {
+			pool.Close()
+		}
+		return nil, fmt.Errorf("init project service: %w", err)
+	}
+
+	if err := projectService.EnsureProjectAndStage(ctx, "default", "Default Project", "production", "Production"); err != nil {
+		log.Printf("warning: unable to ensure default project/stage: %v", err)
+	}
+
 	router, err := httpserver.NewRouter(httpserver.Config{
-		FlagService: flagService,
+		FlagService:    flagService,
+		ProjectService: projectService,
+		AuthManager:    authManager,
+		AuthService:    authService,
 	})
 	if err != nil {
 		if pool != nil {
@@ -111,6 +180,15 @@ func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
 		}
 	}
 	return defaultValue

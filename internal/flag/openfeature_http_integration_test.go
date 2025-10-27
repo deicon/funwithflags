@@ -15,8 +15,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/deicon/funwithflags/internal/auth"
 	flagpkg "github.com/deicon/funwithflags/internal/flag"
 	"github.com/deicon/funwithflags/internal/httpserver"
+	"github.com/deicon/funwithflags/internal/project"
 	"github.com/open-feature/go-sdk/openfeature"
 )
 
@@ -25,6 +27,7 @@ type httpProvider struct {
 	project  string
 	stage    string
 	client   *http.Client
+	token    string
 	metadata openfeature.Metadata
 }
 
@@ -44,11 +47,12 @@ type apiErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func newHTTPProvider(baseURL, project, stage string) *httpProvider {
+func newHTTPProvider(baseURL, project, stage, token string) *httpProvider {
 	return &httpProvider{
 		baseURL:  baseURL,
 		project:  project,
 		stage:    stage,
+		token:    token,
 		metadata: openfeature.Metadata{Name: "funwithflags-http"},
 	}
 }
@@ -172,6 +176,9 @@ func (p *httpProvider) evaluate(ctx context.Context, flagKey string, flatCtx ope
 		return apiEvaluateResponse{}, detail, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if p.token != "" {
+		req.Header.Set("Authorization", "Bearer "+p.token)
+	}
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -321,6 +328,38 @@ func TestOpenFeatureClientHTTPIntegration(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
+	projectRepo := project.NewInMemoryRepository()
+	projectService, err := project.NewService(projectRepo)
+	if err != nil {
+		t.Fatalf("ProjectService: %v", err)
+	}
+	ctx := context.Background()
+	if err := projectService.CreateProject(ctx, project.Project{Key: "test-project", Name: "Test Project"}); err != nil && !errors.Is(err, project.ErrProjectExists) {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := projectService.CreateStage(ctx, project.Stage{ProjectKey: "test-project", Key: "dev", Name: "Development"}); err != nil && !errors.Is(err, project.ErrStageExists) {
+		t.Fatalf("CreateStage: %v", err)
+	}
+
+	authRepo := auth.NewInMemoryRepository()
+	authService, err := auth.NewService(authRepo)
+	if err != nil {
+		t.Fatalf("AuthService: %v", err)
+	}
+	if err := authService.CreateUser(ctx, "tester", "password123", auth.RoleUser); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	authManager, err := auth.NewManager(auth.Config{
+		Secret:          "integration-secret",
+		Repository:      authRepo,
+		AccessTokenTTL:  time.Minute,
+		RefreshTokenTTL: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("AuthManager: %v", err)
+	}
+
 	flagDef := flagpkg.FeatureFlag{
 		Project:    "test-project",
 		Stage:      "dev",
@@ -348,7 +387,12 @@ func TestOpenFeatureClientHTTPIntegration(t *testing.T) {
 		t.Fatalf("UpsertFlag: %v", err)
 	}
 
-	router, err := httpserver.NewRouter(httpserver.Config{FlagService: service})
+	router, err := httpserver.NewRouter(httpserver.Config{
+		FlagService:    service,
+		ProjectService: projectService,
+		AuthManager:    authManager,
+		AuthService:    authService,
+	})
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}
@@ -356,7 +400,16 @@ func TestOpenFeatureClientHTTPIntegration(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	provider := newHTTPProvider(server.URL, "test-project", "dev")
+	user, err := authManager.Authenticate(context.Background(), "tester", "password123")
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	tokens, err := authManager.IssueTokens(user)
+	if err != nil {
+		t.Fatalf("IssueTokens: %v", err)
+	}
+
+	provider := newHTTPProvider(server.URL, "test-project", "dev", tokens.AccessToken)
 	if err := openfeature.SetProviderAndWait(provider); err != nil {
 		t.Fatalf("SetProviderAndWait: %v", err)
 	}
