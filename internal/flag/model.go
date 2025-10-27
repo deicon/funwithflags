@@ -105,7 +105,7 @@ type Repository interface {
 	// GetFlagRanges gets all temporal ranges (active and inactive) for a flag
 	GetFlagRanges(ctx context.Context, project, stage, key string) ([]FeatureFlag, error)
 
-	// ListFlags lists all currently active flags
+	// ListFlags lists all flag ranges for a project/stage
 	ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error)
 
 	// UpsertFlag creates or updates a flag range (validates non-overlapping ranges)
