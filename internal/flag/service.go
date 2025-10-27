@@ -49,7 +49,14 @@ func (s *Service) GetFlag(ctx context.Context, project, stage, key string) (Feat
 }
 
 func (s *Service) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
-	return s.repo.ListFlags(ctx, project, stage)
+	flags, err := s.repo.ListFlags(ctx, project, stage)
+	if err != nil {
+		return nil, err
+	}
+	if flags == nil {
+		return []FeatureFlag{}, nil
+	}
+	return flags, nil
 }
 
 func (s *Service) CreateFlag(ctx context.Context, flag FeatureFlag, performedBy string) error {
@@ -145,7 +152,14 @@ func (s *Service) GetFlagRanges(ctx context.Context, project, stage, key string)
 	if key == "" {
 		return nil, fmt.Errorf("flag key is required")
 	}
-	return s.repo.GetFlagRanges(ctx, project, stage, key)
+	flags, err := s.repo.GetFlagRanges(ctx, project, stage, key)
+	if err != nil {
+		return nil, err
+	}
+	if flags == nil {
+		return []FeatureFlag{}, nil
+	}
+	return flags, nil
 }
 
 func (s *Service) ActivateFlag(ctx context.Context, id int64, performedBy string) error {
@@ -204,5 +218,12 @@ func (s *Service) GetAuditLogs(ctx context.Context, project, stage, flagKey stri
 	if s.auditService == nil {
 		return nil, fmt.Errorf("audit service not configured")
 	}
-	return s.auditService.GetAuditLogs(ctx, project, stage, flagKey, limit)
+	logs, err := s.auditService.GetAuditLogs(ctx, project, stage, flagKey, limit)
+	if err != nil {
+		return nil, err
+	}
+	if logs == nil {
+		return []AuditLog{}, nil
+	}
+	return logs, nil
 }

@@ -146,7 +146,7 @@ func (r *PostgresRepository) GetFlagRanges(ctx context.Context, project, stage, 
 	}
 	defer rows.Close()
 
-	var flags []FeatureFlag
+	flags := make([]FeatureFlag, 0)
 	for rows.Next() {
 		var dbF dbFlag
 		err := rows.Scan(
@@ -204,7 +204,7 @@ func (r *PostgresRepository) ListFlags(ctx context.Context, project, stage strin
 	}
 	defer rows.Close()
 
-	var flags []FeatureFlag
+	flags := make([]FeatureFlag, 0)
 	for rows.Next() {
 		var dbF dbFlag
 		err := rows.Scan(

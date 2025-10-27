@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/deicon/funwithflags/internal/auth"
 	"github.com/deicon/funwithflags/internal/flag"
 )
 
@@ -94,10 +95,7 @@ func newCreateFlagHandler(service *flag.Service) http.HandlerFunc {
 		f.Project = project
 		f.Stage = stage
 
-		performedBy := r.Header.Get("X-User-ID")
-		if performedBy == "" {
-			performedBy = "unknown"
-		}
+		performedBy := requestUser(r)
 
 		if err := service.CreateFlag(r.Context(), f, performedBy); err != nil {
 			if errors.Is(err, flag.ErrInvalidFlag) {
@@ -146,10 +144,7 @@ func newUpdateFlagHandler(service *flag.Service) http.HandlerFunc {
 		// Set ID from path
 		f.ID = id
 
-		performedBy := r.Header.Get("X-User-ID")
-		if performedBy == "" {
-			performedBy = "unknown"
-		}
+		performedBy := requestUser(r)
 
 		if err := service.UpdateFlag(r.Context(), f, performedBy); err != nil {
 			if errors.Is(err, flag.ErrFlagNotFound) {
@@ -197,10 +192,7 @@ func newDeleteFlagHandler(service *flag.Service) http.HandlerFunc {
 			return
 		}
 
-		performedBy := r.Header.Get("X-User-ID")
-		if performedBy == "" {
-			performedBy = "unknown"
-		}
+		performedBy := requestUser(r)
 
 		if err := service.DeleteFlag(r.Context(), id, performedBy); err != nil {
 			if errors.Is(err, flag.ErrFlagNotFound) {
@@ -337,10 +329,7 @@ func newActivateFlagHandler(service *flag.Service) http.HandlerFunc {
 			return
 		}
 
-		performedBy := r.Header.Get("X-User-ID")
-		if performedBy == "" {
-			performedBy = "unknown"
-		}
+		performedBy := requestUser(r)
 
 		if err := service.ActivateFlag(r.Context(), id, performedBy); err != nil {
 			if errors.Is(err, flag.ErrFlagNotFound) {
@@ -376,10 +365,7 @@ func newDeactivateFlagHandler(service *flag.Service) http.HandlerFunc {
 			return
 		}
 
-		performedBy := r.Header.Get("X-User-ID")
-		if performedBy == "" {
-			performedBy = "unknown"
-		}
+		performedBy := requestUser(r)
 
 		if err := service.DeactivateFlag(r.Context(), id, performedBy); err != nil {
 			if errors.Is(err, flag.ErrFlagNotFound) {
@@ -395,4 +381,11 @@ func newDeactivateFlagHandler(service *flag.Service) http.HandlerFunc {
 			"id":      id,
 		})
 	}
+}
+
+func requestUser(r *http.Request) string {
+	if user, ok := auth.UserFromContext(r.Context()); ok && user.Username != "" {
+		return user.Username
+	}
+	return "unknown"
 }

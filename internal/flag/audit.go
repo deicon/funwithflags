@@ -101,7 +101,7 @@ func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, project, stage,
 	}
 	defer rows.Close()
 
-	var logs []AuditLog
+	logs := make([]AuditLog, 0)
 	for rows.Next() {
 		var log AuditLog
 		err := rows.Scan(
