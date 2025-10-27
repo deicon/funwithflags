@@ -117,6 +117,7 @@ export default function FlagsPanel({
   const [createForm, setCreateForm] = useState(() => createDefaultFlagForm());
   const [rangeStart, setRangeStart] = useState(() => nowIsoString());
   const [rangeEnd, setRangeEnd] = useState("");
+  const [projectSearch, setProjectSearch] = useState("");
   const [editForm, setEditForm] = useState({
     name: "",
     description: "",
@@ -169,6 +170,22 @@ export default function FlagsPanel({
     return sorted;
   }, [filter, flags, rangeEnd, rangeStart, sortBy, sortDirection]);
 
+  const filteredProjects = useMemo(() => {
+    const normalized = projectSearch.trim().toLowerCase();
+    if (!normalized) {
+      return projects;
+    }
+    const results = projects.filter((item) => {
+      const haystacks = [item.name, item.key, item.description ?? ""];
+      return haystacks.some((value) => value.toLowerCase().includes(normalized));
+    });
+    if (selectedProjectKey && !results.some((projectOption) => projectOption.key === selectedProjectKey)) {
+      const selectedProjectObject = projects.find((item) => item.key === selectedProjectKey);
+      return selectedProjectObject ? [selectedProjectObject, ...results] : results;
+    }
+    return results;
+  }, [projectSearch, projects, selectedProjectKey]);
+
   useEffect(() => {
     setMessage(null);
     setError(null);
@@ -177,6 +194,10 @@ export default function FlagsPanel({
     setRangeEnd("");
     setModalState(null);
   }, [selectedProjectKey, selectedStageKey]);
+
+  useEffect(() => {
+    setProjectSearch(project?.name ?? "");
+  }, [project]);
 
   const toggleSort = (column: "key" | "name") => {
     if (sortBy === column) {
@@ -335,6 +356,31 @@ export default function FlagsPanel({
     }
   };
 
+  const resolveProjectInput = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    return projects.find((item) => {
+      const candidates = [item.name, item.key];
+      return candidates.some((candidate) => candidate.toLowerCase() === normalized);
+    });
+  };
+
+  const handleProjectInputChange = (value: string) => {
+    setProjectSearch(value);
+    const match = resolveProjectInput(value);
+    if (match && match.key !== selectedProjectKey) {
+      onSelectProject(match);
+    }
+  };
+
+  const handleProjectInputBlur = () => {
+    if (project) {
+      setProjectSearch(project.name);
+    }
+  };
+
   return (
     <div className="panel" aria-label="Flags">
       <div>
@@ -359,26 +405,29 @@ export default function FlagsPanel({
       <div className="selection-grid">
         <div className="form-field">
           <label htmlFor="flag-project-select">Project</label>
-          <select
+          <input
             id="flag-project-select"
-            value={selectedProjectKey ?? ""}
-            onChange={(event) => {
-              const selected = projects.find((item) => item.key === event.target.value);
-              if (selected) {
-                onSelectProject(selected);
-              }
-            }}
+            list="flag-project-options"
+            type="text"
+            placeholder={projects.length ? "Type to filter projects…" : "No projects available"}
+            value={projectSearch}
+            aria-label="Select or filter projects"
+            onChange={(event) => handleProjectInputChange(event.target.value)}
+            onBlur={handleProjectInputBlur}
             disabled={projects.length === 0}
-          >
-            <option value="" disabled>
-              Select a project
-            </option>
-            {projects.map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.name}
+          />
+          <datalist id="flag-project-options">
+            {filteredProjects.map((item) => (
+              <option key={`${item.key}-name`} value={item.name}>
+                {item.name} ({item.key})
               </option>
             ))}
-          </select>
+            {filteredProjects.map((item) => (
+              <option key={`${item.key}-key`} value={item.key}>
+                {item.key} — {item.name}
+              </option>
+            ))}
+          </datalist>
         </div>
         <div className="form-field">
           <label htmlFor="flag-stage-select">Stage</label>
