@@ -7,6 +7,7 @@ dist/
 
 # Dependency directories
 vendor/
+node_modules/
 
 # IDE/editor config
 .idea/

@@ -116,7 +116,7 @@ func TestEvaluateFlag_InvalidJSON(t *testing.T) {
 }
 
 func TestNewRouterRequiresService(t *testing.T) {
-	projectService, authManager := newTestDependencies(t)
+	projectService, authManager, _ := newTestDependencies(t)
 	if _, err := NewRouter(Config{ProjectService: projectService, AuthManager: authManager}); err == nil {
 		t.Fatalf("expected error when service missing")
 	}
@@ -176,7 +176,7 @@ func newTestDependencies(t *testing.T) (*project.Service, *auth.Manager, *auth.S
 	if err != nil {
 		t.Fatalf("AuthService: %v", err)
 	}
-	if err := authService.CreateUser(ctx, "tester", "password123", auth.RoleUser); err != nil {
+	if _, err := authService.CreateUser(ctx, "tester", "password123", auth.RoleUser); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 

@@ -346,7 +346,7 @@ func TestOpenFeatureClientHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AuthService: %v", err)
 	}
-	if err := authService.CreateUser(ctx, "tester", "password123", auth.RoleUser); err != nil {
+	if _, err := authService.CreateUser(ctx, "tester", "password123", auth.RoleUser); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
