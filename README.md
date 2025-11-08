@@ -19,6 +19,9 @@ go run ./cmd/server
 ```
 The server listens on `:8080` by default.
 
+## Configuration
+- `CORS_ALLOWED_ORIGINS` — comma-separated list of origins that can call the API from the browser. Defaults to `https://funwithflags-frontend.fly.dev` (the hosted UI) and `http://localhost:5173` for local Vite development. Update this value anywhere the server runs (`fly.toml`, `docker-compose.yml`, etc.) if you need to authorize different frontends.
+
 ## Evaluating a Flag
 Send a JSON payload containing the evaluation context:
 ```bash

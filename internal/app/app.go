@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/deicon/funwithflags/internal/auth"
@@ -147,11 +148,17 @@ func New() (*App, error) {
 		log.Printf("warning: unable to ensure default project/stage: %v", err)
 	}
 
+	allowedOrigins := getEnvStringSlice("CORS_ALLOWED_ORIGINS", []string{
+		"https://funwithflags-frontend.fly.dev",
+		"http://localhost:5173",
+	})
+
 	router, err := httpserver.NewRouter(httpserver.Config{
 		FlagService:    flagService,
 		ProjectService: projectService,
 		AuthManager:    authManager,
 		AuthService:    authService,
+		AllowedOrigins: allowedOrigins,
 	})
 	if err != nil {
 		if pool != nil {
@@ -194,6 +201,24 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvStringSlice(key string, defaultValues []string) []string {
+	if value, ok := os.LookupEnv(key); ok {
+		parts := strings.Split(value, ",")
+		result := make([]string, 0, len(parts))
+		for _, part := range parts {
+			trimmed := strings.TrimSpace(part)
+			trimmed = strings.TrimSuffix(trimmed, "/")
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result
+	}
+	copyDefaults := make([]string, len(defaultValues))
+	copy(copyDefaults, defaultValues)
+	return copyDefaults
 }
 
 func (a *App) Run(ctx context.Context) error {

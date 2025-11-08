@@ -15,6 +15,7 @@ type Config struct {
 	ProjectService *project.Service
 	AuthManager    *auth.Manager
 	AuthService    *auth.Service
+	AllowedOrigins []string
 }
 
 func NewRouter(cfg Config) (http.Handler, error) {
@@ -103,7 +104,12 @@ func NewRouter(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("DELETE /api/v1/admin/users/{username}",
 		wrapAuth(cfg.AuthManager, true, newDeleteUserHandler(cfg.AuthService)))
 
-	return mux, nil
+	handler := http.Handler(mux)
+	if len(cfg.AllowedOrigins) > 0 {
+		handler = newCORSHandler(handler, cfg.AllowedOrigins)
+	}
+
+	return handler, nil
 }
 
 func wrapAuth(manager *auth.Manager, requireAdmin bool, handler http.HandlerFunc) http.HandlerFunc {
