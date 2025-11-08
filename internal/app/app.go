@@ -48,11 +48,13 @@ func New() (*App, error) {
 	switch storageType {
 	case "postgres":
 		dbCfg := database.Config{
+			URL:      getEnv("DATABASE_URL", ""),
 			Host:     getEnv("DB_HOST", "localhost"),
 			Port:     getEnvInt("DB_PORT", 5432),
 			User:     getEnv("DB_USER", "postgres"),
 			Password: getEnv("DB_PASSWORD", ""),
 			Database: getEnv("DB_NAME", "funwithflags"),
+			SSLMode:  getEnv("DB_SSL_MODE", "disable"),
 		}
 
 		// Run migrations

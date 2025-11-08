@@ -11,10 +11,17 @@ import (
 )
 
 func RunMigrations(cfg Config, migrationsPath string) error {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database,
-	)
+	dsn := cfg.URL
+	if dsn == "" {
+		sslMode := cfg.SSLMode
+		if sslMode == "" {
+			sslMode = "disable"
+		}
+		dsn = fmt.Sprintf(
+			"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+			cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database, sslMode,
+		)
+	}
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

@@ -55,3 +55,8 @@ Admin endpoints are not available yet, so flags must currently be seeded program
 - Add PostgreSQL persistence with migrations and data access abstractions.
 - Expose flag management APIs that the upcoming UI can consume.
 - Expand test coverage for error paths and additional OpenFeature scenarios.
+
+## Fly.io Deployment
+- Backend: configure the API using `fly.toml`, then create/attach a managed database (`flyctl postgres create/attach`) so the app receives `DATABASE_URL`. Secrets such as `JWT_SECRET` should be set through `flyctl secrets set` before `flyctl deploy -c fly.toml`.
+- Frontend: from `frontend/`, deploy with its own `fly.toml` and Dockerfile. Update `build.args.VITE_API_BASE` to the backend’s public URL before running `flyctl deploy -c fly.toml` so the static build knows where to proxy API calls.
+- Full instructions, including recommended app names and scaling tips, live in `docs/fly-deployment.md`.

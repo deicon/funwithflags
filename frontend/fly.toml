@@ -1,13 +1,14 @@
-app = 'funwithflags-api'
+app = 'funwithflags-frontend'
 primary_region = 'iad'
 
 [build]
   dockerfile = 'Dockerfile'
 
+  [build.args]
+    VITE_API_BASE = 'https://funwithflags-api.fly.dev'
+
 [env]
   PORT = '8080'
-  STORAGE_TYPE = 'postgres'
-  MIGRATIONS_PATH = '/migrations'
 
 [http_service]
   internal_port = 8080
@@ -17,17 +18,7 @@ primary_region = 'iad'
   min_machines_running = 0
   processes = ['app']
 
-[checks]
-  [checks.health]
-    type = 'http'
-    port = 8080
-    interval = '15s'
-    timeout = '2s'
-    grace_period = '30s'
-    method = 'get'
-    path = '/healthz'
-
 [[vm]]
-  memory = '1gb'
+  memory = '512mb'
   cpu_kind = 'shared'
   cpus = 1

@@ -9,11 +9,13 @@ import (
 )
 
 type Config struct {
+	URL             string
 	Host            string
 	Port            int
 	User            string
 	Password        string
 	Database        string
+	SSLMode         string
 	MaxConns        int32
 	MinConns        int32
 	MaxConnLifetime time.Duration
@@ -21,12 +23,24 @@ type Config struct {
 }
 
 func NewPool(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database,
+	var (
+		poolConfig *pgxpool.Config
+		err        error
 	)
 
-	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if cfg.URL != "" {
+		poolConfig, err = pgxpool.ParseConfig(cfg.URL)
+	} else {
+		sslMode := cfg.SSLMode
+		if sslMode == "" {
+			sslMode = "disable"
+		}
+		dsn := fmt.Sprintf(
+			"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+			cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database, sslMode,
+		)
+		poolConfig, err = pgxpool.ParseConfig(dsn)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pool config: %w", err)
 	}
