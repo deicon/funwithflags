@@ -151,6 +151,7 @@ func New() (*App, error) {
 	allowedOrigins := getEnvStringSlice("CORS_ALLOWED_ORIGINS", []string{
 		"https://funwithflags-frontend.fly.dev",
 		"http://localhost:5173",
+		"http://localhost:3000",
 	})
 
 	router, err := httpserver.NewRouter(httpserver.Config{

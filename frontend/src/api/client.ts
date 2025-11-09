@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+const API_BASE = (window as any).APP_CONFIG?.apiBase ?? import.meta.env.VITE_API_BASE ?? "";
 
 type RequestOptions = RequestInit & { token?: string };
 
