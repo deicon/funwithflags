@@ -17,6 +17,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  frontend: 
+    build:
+      context: ./frontend/.
+      dockerfile: Dockerfile
+    container_name: funwithflags-ui
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
+    ports:
+      - "5173:8080"
+    environment:
+      API_BASE: http://localhost:8080
 
   app:
     build:
@@ -32,8 +45,10 @@ services:
       DB_NAME: funwithflags
       MIGRATIONS_PATH: /migrations
       PORT: 8080
+      CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:3000"
     ports:
       - "8080:8080"
+      - "40000:40000"
     depends_on:
       postgres:
         condition: service_healthy
