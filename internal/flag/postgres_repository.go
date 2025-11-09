@@ -184,21 +184,17 @@ func (r *PostgresRepository) GetFlagRanges(ctx context.Context, project, stage, 
 	return flags, nil
 }
 
-// ListFlags lists all currently active flags at the current time
+// ListFlags lists all flag ranges for a project/stage ordered by newest range first per key.
 func (r *PostgresRepository) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
-	now := time.Now()
 	query := `
-		SELECT DISTINCT ON (key) id, project, stage, key, name, description, enabled, active,
+		SELECT id, project, stage, key, name, description, enabled, active,
 		       valid_from, valid_to, default_key, config, version, created_at, updated_at
 		FROM feature_flags
 		WHERE project = $1 AND stage = $2
-		  AND active = true
-		  AND valid_from <= $3
-		  AND (valid_to IS NULL OR valid_to > $3)
 		ORDER BY key, valid_from DESC
 	`
 
-	rows, err := r.pool.Query(ctx, query, project, stage, now)
+	rows, err := r.pool.Query(ctx, query, project, stage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list flags: %w", err)
 	}
