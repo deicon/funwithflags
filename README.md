@@ -19,6 +19,24 @@ go run ./cmd/server
 ```
 The server listens on `:8080` by default.
 
+## End-to-End Stack with Docker Compose
+Bring up PostgreSQL, the API, and the Vite UI in one shot for local end-to-end or Playwright coverage:
+```bash
+docker-compose up --build frontend
+```
+This starts the UI on `http://localhost:5173` and the API on `http://localhost:8080` with CORS already allowing the Vite origin. The Compose file seeds sane defaults for database credentials and migrations, so you can point Playwright at `http://localhost:5173` and log in with whatever user you precreate in the database or via an API call. Use `docker-compose down -v` to stop the stack and clear the Postgres volume between test runs.
+
+## Playwright UI Tests
+- Install the frontend dependencies plus Playwright once inside `frontend/`:
+  ```bash
+  cd frontend
+  npm install
+  npm install -D @playwright/test
+  npx playwright install --with-deps
+  ```
+- Run the headless suite with `npm run test:e2e` (or `npm run test:e2e:headed` to debug). The Playwright config starts the Vite dev server on port `5173` automatically; set `PLAYWRIGHT_USE_EXTERNAL_SERVER=true` and `PLAYWRIGHT_BASE_URL=http://localhost:5173` to point at the Docker Compose UI instead of spawning a new one.
+- Set `E2E_USE_LIVE_BACKEND=true` (plus `E2E_API_BASE`, `E2E_ADMIN_USER`, and `E2E_ADMIN_PASSWORD` if you need overrides) to have the specs seed projects, stages, and flags through the running API rather than stubbing network calls. This is how CI exercises the UI against the compose stack.
+
 ## Configuration
 - `CORS_ALLOWED_ORIGINS` — comma-separated list of origins that can call the API from the browser. Defaults to `https://funwithflags-frontend.fly.dev` (the hosted UI) and `http://localhost:5173` for local Vite development. Update this value anywhere the server runs (`fly.toml`, `docker-compose.yml`, etc.) if you need to authorize different frontends.
 
