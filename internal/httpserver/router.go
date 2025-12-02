@@ -39,9 +39,9 @@ func NewRouter(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("POST /api/v1/auth/refresh", newRefreshHandler(cfg.AuthManager))
 	mux.HandleFunc("POST /api/v1/auth/logout", newLogoutHandler(cfg.AuthManager))
 
-// Health endpoints (unauthenticated)
-mux.HandleFunc("GET /healthz", livenessHandler)
-mux.HandleFunc("GET /readyz", readinessHandler)
+	// Health endpoints (unauthenticated)
+	mux.HandleFunc("GET /healthz", livenessHandler)
+	mux.HandleFunc("GET /readyz", readinessHandler)
 
 	// Evaluation endpoint
 	mux.HandleFunc("POST /api/v1/{project}/{stage}/flags/{key}/evaluate",
