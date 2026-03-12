@@ -1,0 +1,4 @@
+# Replace funwithflags.example.com with your actual domain
+funwithflags.example.com {
+    reverse_proxy funwithflags:8080
+}
