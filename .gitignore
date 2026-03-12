@@ -19,3 +19,6 @@ coverage.out
 
 # Superpowers brainstorming sessions
 .superpowers/
+
+# Git worktrees
+.worktrees/
