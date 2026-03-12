@@ -1,6 +1,9 @@
 const API_BASE = (window as any).APP_CONFIG?.apiBase ?? import.meta.env.VITE_API_BASE ?? "";
 
-type RequestOptions = RequestInit & { token?: string };
+type RequestOptions = Omit<RequestInit, "body"> & {
+  token?: string;
+  body?: BodyInit | Record<string, unknown> | null;
+};
 
 type ApiErrorResponse = { error?: string; message?: string };
 
