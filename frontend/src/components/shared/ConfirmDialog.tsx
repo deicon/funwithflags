@@ -42,7 +42,6 @@ export function ConfirmDialog({
             variant={destructive ? "destructive" : "default"}
             onClick={() => {
               onConfirm();
-              onOpenChange(false);
             }}
           >
             {confirmLabel}
