@@ -7,6 +7,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { StagesPage } from "@/pages/StagesPage";
+import { FlagsPage } from "@/pages/FlagsPage";
 import { Toaster } from "@/components/ui/sonner";
 import "./styles.css";
 
@@ -22,7 +23,7 @@ const router = createBrowserRouter([
       { index: true, element: <Navigate to="/projects" replace /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "projects/:projectKey/stages", element: <StagesPage /> },
-      { path: "projects/:projectKey/stages/:stageKey/flags", element: <div className="text-foreground">Flags — coming soon</div> },
+      { path: "projects/:projectKey/stages/:stageKey/flags", element: <FlagsPage /> },
       { path: "projects/:projectKey/stages/:stageKey/flags/:flagKey", element: <div className="text-foreground">Flag Detail — coming soon</div> },
       { path: "users", element: <div className="text-foreground">Users — coming soon</div> },
     ],
