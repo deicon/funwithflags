@@ -31,6 +31,10 @@ func New() (*App, error) {
 	storageType := getEnv("STORAGE_TYPE", "postgres")
 
 	authSecret := getEnv("JWT_SECRET", "funwithflags-dev-secret")
+	frontendDir := getEnv("FRONTEND_DIR", "")
+	if frontendDir != "" {
+		log.Printf("Serving frontend from %s", frontendDir)
+	}
 	authAccessTTL := getEnvDuration("AUTH_ACCESS_TOKEN_TTL", 0)
 	authRefreshTTL := getEnvDuration("AUTH_REFRESH_TOKEN_TTL", 0)
 
@@ -160,6 +164,7 @@ func New() (*App, error) {
 		AuthManager:    authManager,
 		AuthService:    authService,
 		AllowedOrigins: allowedOrigins,
+		FrontendDir:    frontendDir,
 	})
 	if err != nil {
 		if pool != nil {

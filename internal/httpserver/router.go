@@ -16,6 +16,7 @@ type Config struct {
 	AuthManager    *auth.Manager
 	AuthService    *auth.Service
 	AllowedOrigins []string
+	FrontendDir    string
 }
 
 func NewRouter(cfg Config) (http.Handler, error) {
@@ -103,6 +104,11 @@ func NewRouter(cfg Config) (http.Handler, error) {
 		wrapAuth(cfg.AuthManager, true, newUpdateUserHandler(cfg.AuthService)))
 	mux.HandleFunc("DELETE /api/v1/admin/users/{username}",
 		wrapAuth(cfg.AuthManager, true, newDeleteUserHandler(cfg.AuthService)))
+
+	// Serve frontend SPA if configured
+	if cfg.FrontendDir != "" {
+		mux.Handle("GET /", NewSPAHandler(cfg.FrontendDir))
+	}
 
 	handler := http.Handler(mux)
 	if len(cfg.AllowedOrigins) > 0 {
