@@ -1,0 +1,7 @@
+[Unit]
+Description=FunWithFlags Database Backup
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/funwithflags/backup.env
+ExecStart=%h/.config/funwithflags/backup.sh
