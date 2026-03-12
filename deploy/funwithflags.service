@@ -1,0 +1,22 @@
+[Unit]
+Description=FunWithFlags API + Frontend
+After=funwithflags-postgres.service
+Requires=funwithflags-postgres.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+
+ExecStartPre=-/usr/bin/podman rm -f funwithflags
+ExecStart=/usr/bin/podman run \
+    --name funwithflags \
+    --network funwithflags \
+    --label io.containers.autoupdate=registry \
+    --env-file %h/.config/funwithflags/funwithflags.env \
+    ghcr.io/deicon/funwithflags:latest
+
+ExecStop=/usr/bin/podman stop -t 15 funwithflags
+
+[Install]
+WantedBy=default.target
