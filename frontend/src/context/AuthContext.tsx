@@ -8,7 +8,7 @@ import {
   useState
 } from "react";
 
-import { apiFetch, login as apiLogin, logout as apiLogout, refresh as apiRefresh } from "../api/client";
+import { apiFetch, login as apiLogin, logout as apiLogout, refresh as apiRefresh } from "@/api/client";
 
 interface AuthUser {
   username: string;
