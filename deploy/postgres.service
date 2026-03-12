@@ -1,0 +1,27 @@
+[Unit]
+Description=FunWithFlags PostgreSQL
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+EnvironmentFile=%h/.config/funwithflags/postgres.env
+
+ExecStartPre=-/usr/bin/podman rm -f funwithflags-postgres
+ExecStart=/usr/bin/podman run \
+    --name funwithflags-postgres \
+    --network funwithflags \
+    --volume funwithflags-pgdata:/var/lib/postgresql/data:Z \
+    --env-file %h/.config/funwithflags/postgres.env \
+    --health-cmd "pg_isready -U postgres" \
+    --health-interval 10s \
+    --health-timeout 5s \
+    --health-retries 5 \
+    docker.io/library/postgres:16-alpine
+
+ExecStop=/usr/bin/podman stop -t 30 funwithflags-postgres
+
+[Install]
+WantedBy=default.target
