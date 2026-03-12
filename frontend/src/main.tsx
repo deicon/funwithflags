@@ -1,25 +1,28 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { AppLayout } from "@/components/layout/AppLayout";
+import { LoginPage } from "@/pages/LoginPage";
 import { Toaster } from "@/components/ui/sonner";
 import "./styles.css";
 
-// Placeholder routes — will be replaced as pages are built
 const router = createBrowserRouter([
   {
     path: "/login",
-    element: <div className="flex items-center justify-center min-h-screen text-foreground">Login placeholder</div>,
+    element: <LoginPage />,
   },
   {
+    path: "/",
     element: <AppLayout />,
     children: [
-      {
-        path: "*",
-        element: <div className="p-4 text-foreground">Page content placeholder</div>,
-      },
+      { index: true, element: <Navigate to="/projects" replace /> },
+      { path: "projects", element: <div className="text-foreground">Projects — coming soon</div> },
+      { path: "projects/:projectKey/stages", element: <div className="text-foreground">Stages — coming soon</div> },
+      { path: "projects/:projectKey/stages/:stageKey/flags", element: <div className="text-foreground">Flags — coming soon</div> },
+      { path: "projects/:projectKey/stages/:stageKey/flags/:flagKey", element: <div className="text-foreground">Flag Detail — coming soon</div> },
+      { path: "users", element: <div className="text-foreground">Users — coming soon</div> },
     ],
   },
 ]);
