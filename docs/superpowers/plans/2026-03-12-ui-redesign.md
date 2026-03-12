@@ -22,8 +22,15 @@ The existing `authorizedFetch` (from `api/client.ts`) is a typed wrapper — **N
 **Correct pattern for all page components:**
 
 ```tsx
-// Fetching data:
-const data = await authorizedFetch<Project[]>("/api/v1/admin/projects");
+// Fetching lists — backend wraps lists in envelope objects:
+// GET /api/v1/admin/projects returns { projects: [...] }
+// GET .../stages returns { stages: [...] }
+// GET .../flags returns { flags: [...] }
+// GET .../users returns { users: [...] }
+// GET .../flags/{key} returns the flag object directly (no wrapper)
+interface ProjectsResponse { projects: Project[] }
+const data = await authorizedFetch<ProjectsResponse>("/api/v1/admin/projects");
+setProjects(data.projects || []);
 
 // Mutations (body auto-stringified, Content-Type auto-set):
 await authorizedFetch("/api/v1/admin/projects", {
@@ -33,8 +40,8 @@ await authorizedFetch("/api/v1/admin/projects", {
 
 // Error handling — always use try/catch, NOT resp.ok:
 try {
-  const data = await authorizedFetch<Project[]>(path);
-  setProjects(data || []);
+  const data = await authorizedFetch<ProjectsResponse>(path);
+  setProjects(data.projects || []);
 } catch (err) {
   toast.error(err instanceof Error ? err.message : "Failed to load");
 }
@@ -919,6 +926,8 @@ import { Plus, FolderOpen, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { Project } from "@/types";
 
+interface ProjectsResponse { projects: Project[] }
+
 export function ProjectsPage() {
   const { authorizedFetch } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -938,8 +947,8 @@ export function ProjectsPage() {
 
   const fetchProjects = useCallback(async () => {
     try {
-      const data = await authorizedFetch<Project[]>("/api/v1/admin/projects");
-      setProjects(data || []);
+      const data = await authorizedFetch<ProjectsResponse>("/api/v1/admin/projects");
+      setProjects(data.projects || []);
     } catch {
       toast.error("Failed to load projects");
     } finally {
@@ -1188,6 +1197,8 @@ import { Plus, Layers, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { Stage } from "@/types";
 
+interface StagesResponse { stages: Stage[] }
+
 export function StagesPage() {
   const { projectKey } = useParams<{ projectKey: string }>();
   const { authorizedFetch } = useAuth();
@@ -1208,8 +1219,8 @@ export function StagesPage() {
 
   const fetchStages = useCallback(async () => {
     try {
-      const data = await authorizedFetch<Stage[]>(`/api/v1/admin/projects/${projectKey}/stages`);
-      setStages(data || []);
+      const data = await authorizedFetch<StagesResponse>(`/api/v1/admin/projects/${projectKey}/stages`);
+      setStages(data.stages || []);
     } catch {
       toast.error("Failed to load stages");
     } finally {
@@ -1465,6 +1476,8 @@ import { Plus, Flag, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import type { FeatureFlag } from "@/types";
 
+interface FlagsResponse { flags: FeatureFlag[] | null }
+
 export function FlagsPage() {
   const { projectKey, stageKey } = useParams<{ projectKey: string; stageKey: string }>();
   const { authorizedFetch } = useAuth();
@@ -1481,8 +1494,8 @@ export function FlagsPage() {
 
   const fetchFlags = useCallback(async () => {
     try {
-      const data = await authorizedFetch<FeatureFlag[]>(`/api/v1/admin/${projectKey}/${stageKey}/flags`);
-      setFlags(data || []);
+      const data = await authorizedFetch<FlagsResponse>(`/api/v1/admin/${projectKey}/${stageKey}/flags`);
+      setFlags(Array.isArray(data.flags) ? data.flags : []);
     } catch {
       toast.error("Failed to load flags");
     } finally {
@@ -2141,6 +2154,8 @@ import { Plus, Users, KeyRound, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { AuthUser } from "@/types";
 
+interface UsersResponse { users: AuthUser[] }
+
 export function UsersPage() {
   const { user: currentUser, authorizedFetch } = useAuth();
   const [users, setUsers] = useState<AuthUser[]>([]);
@@ -2163,8 +2178,8 @@ export function UsersPage() {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const data = await authorizedFetch<AuthUser[]>("/api/v1/admin/users");
-      setUsers(data || []);
+      const data = await authorizedFetch<UsersResponse>("/api/v1/admin/users");
+      setUsers(data.users || []);
     } catch {
       toast.error("Failed to load users");
     } finally {
