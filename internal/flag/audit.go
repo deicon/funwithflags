@@ -9,11 +9,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const (
-	ActionCreate = "CREATE"
-	ActionUpdate = "UPDATE"
-	ActionDelete = "DELETE"
-)
+// AuditLog represents a single audit trail entry.
+// Action constants (ActionCreate, ActionUpdate, ActionDelete) and the
+// AuditService interface are defined in model.go.
 
 type AuditLog struct {
 	ID          int64
@@ -28,11 +26,6 @@ type AuditLog struct {
 	CreatedAt   time.Time
 }
 
-type AuditService interface {
-	LogAction(ctx context.Context, project, stage, flagKey, action, performedBy string, oldValue, newValue *FeatureFlag) error
-	GetAuditLogs(ctx context.Context, project, stage, flagKey string, limit int) ([]AuditLog, error)
-}
-
 type PostgresAuditService struct {
 	pool *pgxpool.Pool
 }
@@ -43,7 +36,7 @@ func NewPostgresAuditService(pool *pgxpool.Pool) *PostgresAuditService {
 	}
 }
 
-func (s *PostgresAuditService) LogAction(ctx context.Context, project, stage, flagKey, action, performedBy string, oldValue, newValue *FeatureFlag) error {
+func (s *PostgresAuditService) LogAction(ctx context.Context, project, stage, flagKey, action, performedBy string, oldValue, newValue any) error {
 	var oldJSON, newJSON json.RawMessage
 	var err error
 
@@ -61,20 +54,12 @@ func (s *PostgresAuditService) LogAction(ctx context.Context, project, stage, fl
 		}
 	}
 
-	// Determine flag_id (prefer newValue if available, fallback to oldValue)
-	var flagID *int64
-	if newValue != nil && newValue.ID > 0 {
-		flagID = &newValue.ID
-	} else if oldValue != nil && oldValue.ID > 0 {
-		flagID = &oldValue.ID
-	}
-
 	query := `
-		INSERT INTO audit_logs (flag_id, project, stage, flag_key, action, performed_by, old_value, new_value)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO audit_logs (project, stage, flag_key, action, performed_by, old_value, new_value)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
-	_, err = s.pool.Exec(ctx, query, flagID, project, stage, flagKey, action, performedBy, oldJSON, newJSON)
+	_, err = s.pool.Exec(ctx, query, project, stage, flagKey, action, performedBy, oldJSON, newJSON)
 	if err != nil {
 		return fmt.Errorf("failed to insert audit log: %w", err)
 	}

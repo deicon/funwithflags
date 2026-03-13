@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// --- Variation types ---
+
 type VariationType string
 
 const (
@@ -21,6 +23,8 @@ type Variation struct {
 	Description string        `json:"description,omitempty"`
 }
 
+// --- FeatureFlag: identity only (no temporal or rule data) ---
+
 type FeatureFlag struct {
 	ID          int64       `json:"id"`
 	Project     string      `json:"project"`
@@ -29,15 +33,44 @@ type FeatureFlag struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	Enabled     bool        `json:"enabled"`
-	Active      bool        `json:"active"`
-	ValidFrom   time.Time   `json:"validFrom"`
-	ValidTo     *time.Time  `json:"validTo,omitempty"`
 	DefaultKey  string      `json:"defaultKey"`
 	Variations  []Variation `json:"variations"`
-	Rules       []Rule      `json:"rules"`
 	CreatedAt   time.Time   `json:"createdAt"`
 	UpdatedAt   time.Time   `json:"updatedAt"`
 }
+
+// --- FlagRange: temporal validity window ---
+
+type FlagRange struct {
+	ID        int64      `json:"id"`
+	FlagID    int64      `json:"flagId"`
+	Active    bool       `json:"active"`
+	ValidFrom time.Time  `json:"validFrom"`
+	ValidTo   *time.Time `json:"validTo,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
+// --- RangeVersion: rules with draft/publish lifecycle ---
+
+type VersionStatus string
+
+const (
+	VersionStatusDraft     VersionStatus = "draft"
+	VersionStatusPublished VersionStatus = "published"
+)
+
+type RangeVersion struct {
+	ID        int64         `json:"id"`
+	RangeID   int64         `json:"rangeId"`
+	Version   int           `json:"version"`
+	Status    VersionStatus `json:"status"`
+	Rules     []Rule        `json:"rules"`
+	CreatedAt time.Time     `json:"createdAt"`
+	UpdatedAt time.Time     `json:"updatedAt"`
+}
+
+// --- Evaluation ---
 
 type EvaluationContext map[string]any
 
@@ -51,7 +84,11 @@ const (
 	ReasonPercentageRollout = "PERCENTAGE_ROLLOUT"
 	ReasonDefault           = "DEFAULT"
 	ReasonDisabled          = "DISABLED"
+	ReasonNoActiveRange     = "NO_ACTIVE_RANGE"
+	ReasonNoPublishedVersion = "NO_PUBLISHED_VERSION"
 )
+
+// --- Matcher operators ---
 
 type MatcherOperator string
 
@@ -66,6 +103,8 @@ const (
 	MatcherIn         MatcherOperator = "in"
 	MatcherExists     MatcherOperator = "exists"
 )
+
+// --- Rules and conditions ---
 
 type Condition struct {
 	Attribute string          `json:"attribute"`
@@ -92,38 +131,46 @@ type Rule struct {
 	Rollout      *PercentageRollout `json:"rollout,omitempty"`
 }
 
+// --- Audit action constants ---
+
+const (
+	ActionCreate = "CREATE"
+	ActionUpdate = "UPDATE"
+	ActionDelete = "DELETE"
+)
+
+// --- Interfaces ---
+
+type AuditService interface {
+	LogAction(ctx context.Context, project, stage, flagKey, action, performedBy string, oldValue, newValue any) error
+	GetAuditLogs(ctx context.Context, project, stage, flagKey string, limit int) ([]AuditLog, error)
+}
+
 type Repository interface {
-	// GetFlag gets the currently active flag valid at the current time
+	// Flag identity CRUD
 	GetFlag(ctx context.Context, project, stage, key string) (FeatureFlag, error)
-
-	// GetFlagByID gets a specific flag range by ID
 	GetFlagByID(ctx context.Context, id int64) (FeatureFlag, error)
-
-	// GetFlagAt gets the active flag valid at a specific time
-	GetFlagAt(ctx context.Context, project, stage, key string, at time.Time) (FeatureFlag, error)
-
-	// GetFlagRanges gets all temporal ranges (active and inactive) for a flag
-	GetFlagRanges(ctx context.Context, project, stage, key string) ([]FeatureFlag, error)
-
-	// ListFlags lists all flag ranges for a project/stage
 	ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error)
-
-	// UpsertFlag creates or updates a flag range (validates non-overlapping ranges)
-	UpsertFlag(ctx context.Context, flag FeatureFlag) error
-
-	// DeleteFlag deletes a specific flag range by ID
+	CreateFlag(ctx context.Context, flag *FeatureFlag) error
+	UpdateFlag(ctx context.Context, flag *FeatureFlag) error
 	DeleteFlag(ctx context.Context, id int64) error
 
-	// ActivateFlag activates a flag range (checks for overlapping active ranges)
-	ActivateFlag(ctx context.Context, id int64) error
+	// Range CRUD
+	GetRange(ctx context.Context, id int64) (FlagRange, error)
+	ListRanges(ctx context.Context, flagID int64) ([]FlagRange, error)
+	CreateRange(ctx context.Context, r *FlagRange) error
+	UpdateRange(ctx context.Context, r *FlagRange) error
+	DeleteRange(ctx context.Context, id int64) error
+	CheckOverlap(ctx context.Context, flagID int64, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error)
 
-	// DeactivateFlag deactivates a flag range
-	DeactivateFlag(ctx context.Context, id int64) error
-
-	// CheckOverlap checks if a time range overlaps with any existing ranges
-	CheckOverlap(ctx context.Context, project, stage, key string, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error)
+	// Version CRUD
+	GetVersion(ctx context.Context, id int64) (RangeVersion, error)
+	ListVersions(ctx context.Context, rangeID int64) ([]RangeVersion, error)
+	CreateVersion(ctx context.Context, v *RangeVersion) error
+	UpdateVersion(ctx context.Context, v *RangeVersion) error
+	DeleteVersion(ctx context.Context, id int64) error
 }
 
 type Evaluator interface {
-	Evaluate(ctx context.Context, flag FeatureFlag, attrs EvaluationContext) (EvaluationResult, error)
+	Evaluate(ctx context.Context, flag FeatureFlag, v RangeVersion, attrs EvaluationContext) (EvaluationResult, error)
 }
