@@ -195,42 +195,174 @@ func (r *InMemoryRepository) ListFlags(ctx context.Context, project, stage strin
 	return result, nil
 }
 
-// --- Range CRUD (stubs) ---
+// --- Range CRUD ---
 
 func (r *InMemoryRepository) CreateRange(ctx context.Context, rng FlagRange) (FlagRange, error) {
-	return FlagRange{}, fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Validate flag exists
+	if _, ok := r.flags[rng.FlagID]; !ok {
+		return FlagRange{}, ErrFlagNotFound
+	}
+
+	// Validate temporal range
+	if err := ValidateTemporalRange(rng.ValidFrom, rng.ValidTo); err != nil {
+		return FlagRange{}, fmt.Errorf("%w: %v", ErrInvalidTimeRange, err)
+	}
+
+	// Check overlap with existing ranges for this flag
+	if overlap := r.checkOverlapLocked(rng.FlagID, rng.ValidFrom, rng.ValidTo, 0); overlap {
+		return FlagRange{}, ErrRangeOverlap
+	}
+
+	now := time.Now().UTC()
+	r.rangeSeq++
+	rng.ID = r.rangeSeq
+	rng.Active = false // ranges start inactive
+	rng.CreatedAt = now
+	rng.UpdatedAt = now
+
+	r.ranges[rng.ID] = rng
+	return rng, nil
 }
 
 func (r *InMemoryRepository) GetRange(ctx context.Context, id int64) (FlagRange, error) {
-	return FlagRange{}, fmt.Errorf("not implemented")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	rng, ok := r.ranges[id]
+	if !ok {
+		return FlagRange{}, ErrRangeNotFound
+	}
+	return rng, nil
 }
 
 func (r *InMemoryRepository) UpdateRange(ctx context.Context, rng FlagRange) error {
-	return fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.ranges[rng.ID]
+	if !ok {
+		return ErrRangeNotFound
+	}
+
+	// Validate temporal range
+	if err := ValidateTemporalRange(rng.ValidFrom, rng.ValidTo); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidTimeRange, err)
+	}
+
+	// Check overlap excluding self
+	if overlap := r.checkOverlapLocked(existing.FlagID, rng.ValidFrom, rng.ValidTo, rng.ID); overlap {
+		return ErrRangeOverlap
+	}
+
+	// Keep FlagID, Active, CreatedAt immutable
+	rng.FlagID = existing.FlagID
+	rng.Active = existing.Active
+	rng.CreatedAt = existing.CreatedAt
+	rng.UpdatedAt = time.Now().UTC()
+
+	r.ranges[rng.ID] = rng
+	return nil
 }
 
 func (r *InMemoryRepository) DeleteRange(ctx context.Context, id int64) error {
-	return fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.ranges[id]; !ok {
+		return ErrRangeNotFound
+	}
+
+	// Cascade delete versions belonging to this range
+	for vID, v := range r.versions {
+		if v.RangeID == id {
+			delete(r.versions, vID)
+		}
+	}
+
+	delete(r.ranges, id)
+	return nil
 }
 
 func (r *InMemoryRepository) ListRanges(ctx context.Context, flagID int64) ([]FlagRange, error) {
-	return nil, fmt.Errorf("not implemented")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]FlagRange, 0)
+	for _, rng := range r.ranges {
+		if rng.FlagID == flagID {
+			result = append(result, rng)
+		}
+	}
+	return result, nil
 }
 
 func (r *InMemoryRepository) ActivateRange(ctx context.Context, id int64) error {
-	return fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rng, ok := r.ranges[id]
+	if !ok {
+		return ErrRangeNotFound
+	}
+
+	rng.Active = true
+	r.ranges[id] = rng
+	return nil
 }
 
 func (r *InMemoryRepository) DeactivateRange(ctx context.Context, id int64) error {
-	return fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rng, ok := r.ranges[id]
+	if !ok {
+		return ErrRangeNotFound
+	}
+
+	rng.Active = false
+	r.ranges[id] = rng
+	return nil
 }
 
 func (r *InMemoryRepository) GetActiveRange(ctx context.Context, flagID int64, at time.Time) (FlagRange, error) {
-	return FlagRange{}, fmt.Errorf("not implemented")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, rng := range r.ranges {
+		if rng.FlagID == flagID && rng.Active && IsValidInRange(at, rng.ValidFrom, rng.ValidTo) {
+			return rng, nil
+		}
+	}
+	return FlagRange{}, ErrRangeNotFound
 }
 
 func (r *InMemoryRepository) CheckRangeOverlap(ctx context.Context, flagID int64, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
-	return false, fmt.Errorf("not implemented")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.checkOverlapLocked(flagID, validFrom, validTo, excludeID), nil
+}
+
+// checkOverlapLocked checks if a time range overlaps with existing ranges for a flag.
+// Caller must hold at least a read lock.
+func (r *InMemoryRepository) checkOverlapLocked(flagID int64, validFrom time.Time, validTo *time.Time, excludeID int64) bool {
+	newRange := TimeRange{From: validFrom, To: validTo}
+
+	for _, rng := range r.ranges {
+		if rng.ID == excludeID {
+			continue
+		}
+		if rng.FlagID == flagID {
+			existing := TimeRange{From: rng.ValidFrom, To: rng.ValidTo}
+			if RangesOverlap(newRange, existing) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // --- Version CRUD (stubs) ---
