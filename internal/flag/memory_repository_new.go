@@ -365,32 +365,142 @@ func (r *InMemoryRepository) checkOverlapLocked(flagID int64, validFrom time.Tim
 	return false
 }
 
-// --- Version CRUD (stubs) ---
+// --- Version CRUD ---
 
 func (r *InMemoryRepository) CreateVersion(ctx context.Context, v RangeVersion) (RangeVersion, error) {
-	return RangeVersion{}, fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Validate range exists
+	if _, ok := r.ranges[v.RangeID]; !ok {
+		return RangeVersion{}, ErrRangeNotFound
+	}
+
+	// Check for existing draft
+	for _, existing := range r.versions {
+		if existing.RangeID == v.RangeID && existing.Status == VersionStatusDraft {
+			return RangeVersion{}, ErrDraftExists
+		}
+	}
+
+	// Auto-increment version number from max existing for this range
+	maxVer := 0
+	for _, existing := range r.versions {
+		if existing.RangeID == v.RangeID && existing.Version > maxVer {
+			maxVer = existing.Version
+		}
+	}
+
+	now := time.Now().UTC()
+	r.verSeq++
+	v.ID = r.verSeq
+	v.Version = maxVer + 1
+	v.Status = VersionStatusDraft
+	v.PublishedAt = nil
+	v.CreatedAt = now
+	v.Rules = cloneRules(v.Rules)
+
+	r.versions[v.ID] = cloneVersion(v)
+	return cloneVersion(v), nil
 }
 
 func (r *InMemoryRepository) GetVersion(ctx context.Context, id int64) (RangeVersion, error) {
-	return RangeVersion{}, fmt.Errorf("not implemented")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	v, ok := r.versions[id]
+	if !ok {
+		return RangeVersion{}, ErrVersionNotFound
+	}
+	return cloneVersion(v), nil
 }
 
 func (r *InMemoryRepository) UpdateVersion(ctx context.Context, v RangeVersion) error {
-	return fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.versions[v.ID]
+	if !ok {
+		return ErrVersionNotFound
+	}
+
+	// Only drafts can be updated
+	if existing.Status != VersionStatusDraft {
+		return ErrVersionNotDraft
+	}
+
+	// Only update Rules; preserve everything else
+	existing.Rules = cloneRules(v.Rules)
+	r.versions[v.ID] = existing
+	return nil
 }
 
 func (r *InMemoryRepository) DeleteDraftVersion(ctx context.Context, id int64) error {
-	return fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	v, ok := r.versions[id]
+	if !ok {
+		return ErrVersionNotFound
+	}
+
+	if v.Status != VersionStatusDraft {
+		return ErrCannotDeletePublished
+	}
+
+	delete(r.versions, id)
+	return nil
 }
 
 func (r *InMemoryRepository) ListVersions(ctx context.Context, rangeID int64) ([]RangeVersion, error) {
-	return nil, fmt.Errorf("not implemented")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]RangeVersion, 0)
+	for _, v := range r.versions {
+		if v.RangeID == rangeID {
+			result = append(result, cloneVersion(v))
+		}
+	}
+	return result, nil
 }
 
 func (r *InMemoryRepository) GetPublishedVersion(ctx context.Context, rangeID int64) (RangeVersion, error) {
-	return RangeVersion{}, fmt.Errorf("not implemented")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var best *RangeVersion
+	for _, v := range r.versions {
+		if v.RangeID == rangeID && v.Status == VersionStatusPublished {
+			if best == nil || v.Version > best.Version {
+				cpy := v
+				best = &cpy
+			}
+		}
+	}
+
+	if best == nil {
+		return RangeVersion{}, ErrNoPublishedVersion
+	}
+	return cloneVersion(*best), nil
 }
 
 func (r *InMemoryRepository) PublishVersion(ctx context.Context, id int64) error {
-	return fmt.Errorf("not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	v, ok := r.versions[id]
+	if !ok {
+		return ErrVersionNotFound
+	}
+
+	if v.Status != VersionStatusDraft {
+		return ErrVersionNotDraft
+	}
+
+	now := time.Now().UTC()
+	v.Status = VersionStatusPublished
+	v.PublishedAt = &now
+	r.versions[id] = v
+	return nil
 }

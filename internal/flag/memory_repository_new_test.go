@@ -608,3 +608,442 @@ func TestMemRepo_ActivateDeactivateRange_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrRangeNotFound for DeactivateRange, got %v", err)
 	}
 }
+
+// --- Version CRUD tests ---
+
+func TestMemRepo_CreateAndGetVersion(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	v, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{{ID: "r1", VariationKey: "on"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion: %v", err)
+	}
+
+	if v.ID == 0 {
+		t.Fatal("expected non-zero version ID")
+	}
+	if v.Version != 1 {
+		t.Fatalf("Version: got %d, want 1", v.Version)
+	}
+	if v.Status != VersionStatusDraft {
+		t.Fatalf("Status: got %q, want %q", v.Status, VersionStatusDraft)
+	}
+	if v.PublishedAt != nil {
+		t.Fatal("PublishedAt should be nil for draft")
+	}
+	if v.CreatedAt.IsZero() {
+		t.Fatal("expected CreatedAt to be set")
+	}
+
+	// GetVersion
+	got, err := repo.GetVersion(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if got.RangeID != r.ID {
+		t.Fatalf("RangeID: got %d, want %d", got.RangeID, r.ID)
+	}
+	if len(got.Rules) != 1 || got.Rules[0].ID != "r1" {
+		t.Fatalf("Rules mismatch")
+	}
+}
+
+func TestMemRepo_CreateVersion_RangeNotFound(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+
+	_, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: 999,
+		Rules:   []Rule{},
+	})
+	if !errors.Is(err, ErrRangeNotFound) {
+		t.Fatalf("expected ErrRangeNotFound, got %v", err)
+	}
+}
+
+func TestMemRepo_OnlyOneDraft(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	// First draft succeeds
+	_, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{},
+	})
+	if err != nil {
+		t.Fatalf("first CreateVersion: %v", err)
+	}
+
+	// Second draft fails
+	_, err = repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{},
+	})
+	if !errors.Is(err, ErrDraftExists) {
+		t.Fatalf("expected ErrDraftExists, got %v", err)
+	}
+}
+
+func TestMemRepo_PublishVersion(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	v, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{{ID: "r1", VariationKey: "on"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion: %v", err)
+	}
+
+	// Publish
+	if err := repo.PublishVersion(ctx, v.ID); err != nil {
+		t.Fatalf("PublishVersion: %v", err)
+	}
+
+	got, err := repo.GetVersion(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if got.Status != VersionStatusPublished {
+		t.Fatalf("Status: got %q, want %q", got.Status, VersionStatusPublished)
+	}
+	if got.PublishedAt == nil {
+		t.Fatal("PublishedAt should be set after publish")
+	}
+
+	// Publishing again should fail (already published)
+	if err := repo.PublishVersion(ctx, v.ID); !errors.Is(err, ErrVersionNotDraft) {
+		t.Fatalf("expected ErrVersionNotDraft for re-publish, got %v", err)
+	}
+}
+
+func TestMemRepo_PublishVersion_NotFound(t *testing.T) {
+	repo := NewInMemoryRepository()
+	err := repo.PublishVersion(context.Background(), 999)
+	if !errors.Is(err, ErrVersionNotFound) {
+		t.Fatalf("expected ErrVersionNotFound, got %v", err)
+	}
+}
+
+func TestMemRepo_GetPublishedVersion(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	// No published version yet
+	_, err := repo.GetPublishedVersion(ctx, r.ID)
+	if !errors.Is(err, ErrNoPublishedVersion) {
+		t.Fatalf("expected ErrNoPublishedVersion, got %v", err)
+	}
+
+	// Create and publish v1
+	v1, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{{ID: "r1", VariationKey: "on"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion v1: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, v1.ID); err != nil {
+		t.Fatalf("PublishVersion v1: %v", err)
+	}
+
+	pub, err := repo.GetPublishedVersion(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetPublishedVersion: %v", err)
+	}
+	if pub.Version != 1 {
+		t.Fatalf("expected published version 1, got %d", pub.Version)
+	}
+
+	// Create and publish v2
+	v2, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{{ID: "r2", VariationKey: "on"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion v2: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, v2.ID); err != nil {
+		t.Fatalf("PublishVersion v2: %v", err)
+	}
+
+	// GetPublishedVersion should return v2 (highest version number)
+	pub, err = repo.GetPublishedVersion(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetPublishedVersion: %v", err)
+	}
+	if pub.Version != 2 {
+		t.Fatalf("expected published version 2, got %d", pub.Version)
+	}
+	if pub.Rules[0].ID != "r2" {
+		t.Fatalf("expected rule r2, got %q", pub.Rules[0].ID)
+	}
+}
+
+func TestMemRepo_DeleteDraftVersion(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	v, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion: %v", err)
+	}
+
+	if err := repo.DeleteDraftVersion(ctx, v.ID); err != nil {
+		t.Fatalf("DeleteDraftVersion: %v", err)
+	}
+
+	_, err = repo.GetVersion(ctx, v.ID)
+	if !errors.Is(err, ErrVersionNotFound) {
+		t.Fatalf("expected ErrVersionNotFound after delete, got %v", err)
+	}
+}
+
+func TestMemRepo_DeleteDraftVersion_RejectsPublished(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	v, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion: %v", err)
+	}
+
+	// Publish it first
+	if err := repo.PublishVersion(ctx, v.ID); err != nil {
+		t.Fatalf("PublishVersion: %v", err)
+	}
+
+	// Deleting a published version should fail
+	err = repo.DeleteDraftVersion(ctx, v.ID)
+	if !errors.Is(err, ErrCannotDeletePublished) {
+		t.Fatalf("expected ErrCannotDeletePublished, got %v", err)
+	}
+}
+
+func TestMemRepo_DeleteDraftVersion_NotFound(t *testing.T) {
+	repo := NewInMemoryRepository()
+	err := repo.DeleteDraftVersion(context.Background(), 999)
+	if !errors.Is(err, ErrVersionNotFound) {
+		t.Fatalf("expected ErrVersionNotFound, got %v", err)
+	}
+}
+
+func TestMemRepo_UpdateVersion_DraftOnly(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	v, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{{ID: "r1", VariationKey: "on"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion: %v", err)
+	}
+
+	// Update draft rules
+	v.Rules = []Rule{{ID: "r2", VariationKey: "off"}}
+	if err := repo.UpdateVersion(ctx, v); err != nil {
+		t.Fatalf("UpdateVersion: %v", err)
+	}
+
+	got, err := repo.GetVersion(ctx, v.ID)
+	if err != nil {
+		t.Fatalf("GetVersion: %v", err)
+	}
+	if len(got.Rules) != 1 || got.Rules[0].ID != "r2" {
+		t.Fatal("rules should be updated")
+	}
+
+	// Publish, then try to update — should fail
+	if err := repo.PublishVersion(ctx, v.ID); err != nil {
+		t.Fatalf("PublishVersion: %v", err)
+	}
+	v.Rules = []Rule{{ID: "r3", VariationKey: "on"}}
+	err = repo.UpdateVersion(ctx, v)
+	if !errors.Is(err, ErrVersionNotDraft) {
+		t.Fatalf("expected ErrVersionNotDraft, got %v", err)
+	}
+}
+
+func TestMemRepo_UpdateVersion_NotFound(t *testing.T) {
+	repo := NewInMemoryRepository()
+	err := repo.UpdateVersion(context.Background(), RangeVersion{ID: 999})
+	if !errors.Is(err, ErrVersionNotFound) {
+		t.Fatalf("expected ErrVersionNotFound, got %v", err)
+	}
+}
+
+func TestMemRepo_ListVersions(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	// Empty list
+	list, err := repo.ListVersions(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if list == nil {
+		t.Fatal("expected non-nil empty slice")
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 versions, got %d", len(list))
+	}
+
+	// Create, publish, create another
+	v1, err := repo.CreateVersion(ctx, RangeVersion{RangeID: r.ID, Rules: []Rule{}})
+	if err != nil {
+		t.Fatalf("CreateVersion 1: %v", err)
+	}
+	if err := repo.PublishVersion(ctx, v1.ID); err != nil {
+		t.Fatalf("PublishVersion: %v", err)
+	}
+	if _, err := repo.CreateVersion(ctx, RangeVersion{RangeID: r.ID, Rules: []Rule{}}); err != nil {
+		t.Fatalf("CreateVersion 2: %v", err)
+	}
+
+	list, err = repo.ListVersions(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 versions, got %d", len(list))
+	}
+
+	// Versions for non-existent range
+	list, err = repo.ListVersions(ctx, 999)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected 0 versions for non-existent range, got %d", len(list))
+	}
+}
+
+func TestMemRepo_DeleteRange_CascadesVersions(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	// Create a version
+	_, err := repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion: %v", err)
+	}
+
+	// Delete the range
+	if err := repo.DeleteRange(ctx, r.ID); err != nil {
+		t.Fatalf("DeleteRange: %v", err)
+	}
+
+	// Versions should be gone
+	versions, err := repo.ListVersions(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Fatalf("expected 0 versions after range cascade delete, got %d", len(versions))
+	}
+}
+
+func TestMemRepo_DeleteFlag_CascadesRangesAndVersions(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+
+	f, err := repo.CreateFlag(ctx, FeatureFlag{
+		Project: "proj", Stage: "dev", Key: "cascade-flag",
+		Name: "Cascade", Enabled: true, DefaultKey: "on",
+		Variations: []Variation{{Key: "on", Type: BooleanVariation, Value: true}},
+	})
+	if err != nil {
+		t.Fatalf("CreateFlag: %v", err)
+	}
+
+	now := time.Now().UTC()
+	r, err := repo.CreateRange(ctx, FlagRange{
+		FlagID: f.ID, ValidFrom: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateRange: %v", err)
+	}
+
+	_, err = repo.CreateVersion(ctx, RangeVersion{
+		RangeID: r.ID,
+		Rules:   []Rule{},
+	})
+	if err != nil {
+		t.Fatalf("CreateVersion: %v", err)
+	}
+
+	// Delete the flag
+	if err := repo.DeleteFlag(ctx, f.ID); err != nil {
+		t.Fatalf("DeleteFlag: %v", err)
+	}
+
+	// Ranges should be gone
+	ranges, err := repo.ListRanges(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("ListRanges: %v", err)
+	}
+	if len(ranges) != 0 {
+		t.Fatalf("expected 0 ranges after cascade delete, got %d", len(ranges))
+	}
+
+	// Versions should be gone
+	versions, err := repo.ListVersions(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("ListVersions: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Fatalf("expected 0 versions after cascade delete, got %d", len(versions))
+	}
+}
+
+func TestMemRepo_VersionAutoIncrement(t *testing.T) {
+	repo := NewInMemoryRepository()
+	ctx := context.Background()
+	_, r := createTestFlagAndRange(t, repo)
+
+	// Create v1, publish it
+	v1, err := repo.CreateVersion(ctx, RangeVersion{RangeID: r.ID, Rules: []Rule{}})
+	if err != nil {
+		t.Fatalf("CreateVersion v1: %v", err)
+	}
+	if v1.Version != 1 {
+		t.Fatalf("v1.Version: got %d, want 1", v1.Version)
+	}
+
+	if err := repo.PublishVersion(ctx, v1.ID); err != nil {
+		t.Fatalf("PublishVersion v1: %v", err)
+	}
+
+	// Create v2 — should auto-increment from max existing
+	v2, err := repo.CreateVersion(ctx, RangeVersion{RangeID: r.ID, Rules: []Rule{}})
+	if err != nil {
+		t.Fatalf("CreateVersion v2: %v", err)
+	}
+	if v2.Version != 2 {
+		t.Fatalf("v2.Version: got %d, want 2", v2.Version)
+	}
+}
