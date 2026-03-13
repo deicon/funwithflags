@@ -61,13 +61,13 @@ const (
 )
 
 type RangeVersion struct {
-	ID        int64         `json:"id"`
-	RangeID   int64         `json:"rangeId"`
-	Version   int           `json:"version"`
-	Status    VersionStatus `json:"status"`
-	Rules     []Rule        `json:"rules"`
-	CreatedAt time.Time     `json:"createdAt"`
-	UpdatedAt time.Time     `json:"updatedAt"`
+	ID          int64         `json:"id"`
+	RangeID     int64         `json:"rangeId"`
+	Version     int           `json:"version"`
+	Status      VersionStatus `json:"status"`
+	Rules       []Rule        `json:"rules"`
+	PublishedAt *time.Time    `json:"publishedAt,omitempty"`
+	CreatedAt   time.Time     `json:"createdAt"`
 }
 
 // --- Evaluation ---
@@ -148,27 +148,32 @@ type AuditService interface {
 
 type Repository interface {
 	// Flag identity CRUD
+	CreateFlag(ctx context.Context, flag FeatureFlag) (FeatureFlag, error)
 	GetFlag(ctx context.Context, project, stage, key string) (FeatureFlag, error)
 	GetFlagByID(ctx context.Context, id int64) (FeatureFlag, error)
-	ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error)
-	CreateFlag(ctx context.Context, flag *FeatureFlag) error
-	UpdateFlag(ctx context.Context, flag *FeatureFlag) error
+	UpdateFlag(ctx context.Context, flag FeatureFlag) error
 	DeleteFlag(ctx context.Context, id int64) error
+	ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error)
 
 	// Range CRUD
+	CreateRange(ctx context.Context, r FlagRange) (FlagRange, error)
 	GetRange(ctx context.Context, id int64) (FlagRange, error)
-	ListRanges(ctx context.Context, flagID int64) ([]FlagRange, error)
-	CreateRange(ctx context.Context, r *FlagRange) error
-	UpdateRange(ctx context.Context, r *FlagRange) error
+	UpdateRange(ctx context.Context, r FlagRange) error
 	DeleteRange(ctx context.Context, id int64) error
-	CheckOverlap(ctx context.Context, flagID int64, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error)
+	ListRanges(ctx context.Context, flagID int64) ([]FlagRange, error)
+	ActivateRange(ctx context.Context, id int64) error
+	DeactivateRange(ctx context.Context, id int64) error
+	GetActiveRange(ctx context.Context, flagID int64, at time.Time) (FlagRange, error)
+	CheckRangeOverlap(ctx context.Context, flagID int64, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error)
 
 	// Version CRUD
+	CreateVersion(ctx context.Context, v RangeVersion) (RangeVersion, error)
 	GetVersion(ctx context.Context, id int64) (RangeVersion, error)
+	UpdateVersion(ctx context.Context, v RangeVersion) error
+	DeleteDraftVersion(ctx context.Context, id int64) error
 	ListVersions(ctx context.Context, rangeID int64) ([]RangeVersion, error)
-	CreateVersion(ctx context.Context, v *RangeVersion) error
-	UpdateVersion(ctx context.Context, v *RangeVersion) error
-	DeleteVersion(ctx context.Context, id int64) error
+	GetPublishedVersion(ctx context.Context, rangeID int64) (RangeVersion, error)
+	PublishVersion(ctx context.Context, id int64) error
 }
 
 type Evaluator interface {

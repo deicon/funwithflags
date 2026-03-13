@@ -245,8 +245,7 @@ func TestRangeVersionJSON(t *testing.T) {
 				Status:    VersionStatusDraft,
 				Rules:     []Rule{},
 				CreatedAt: now,
-				UpdatedAt: now,
-			},
+				},
 		},
 		{
 			name: "published with rules",
@@ -281,7 +280,6 @@ func TestRangeVersionJSON(t *testing.T) {
 					},
 				},
 				CreatedAt: now,
-				UpdatedAt: now,
 			},
 		},
 	}
