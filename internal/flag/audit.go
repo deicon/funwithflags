@@ -16,6 +16,7 @@ import (
 type AuditLog struct {
 	ID          int64
 	FlagID      *int64
+	RangeID     *int64
 	Project     string
 	Stage       string
 	FlagKey     string
@@ -73,7 +74,7 @@ func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, project, stage,
 	}
 
 	query := `
-		SELECT id, flag_id, project, stage, flag_key, action, performed_by, old_value, new_value, created_at
+		SELECT id, flag_id, range_id, project, stage, flag_key, action, performed_by, old_value, new_value, created_at
 		FROM audit_logs
 		WHERE project = $1 AND stage = $2 AND flag_key = $3
 		ORDER BY created_at DESC
@@ -92,6 +93,7 @@ func (s *PostgresAuditService) GetAuditLogs(ctx context.Context, project, stage,
 		err := rows.Scan(
 			&log.ID,
 			&log.FlagID,
+			&log.RangeID,
 			&log.Project,
 			&log.Stage,
 			&log.FlagKey,
