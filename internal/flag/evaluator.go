@@ -1,5 +1,3 @@
-//go:build ignore
-
 package flag
 
 import (
@@ -12,17 +10,13 @@ import (
 
 type Engine struct{}
 
-func NewEngine() *Engine {
-	return &Engine{}
-}
-
-func (e *Engine) Evaluate(ctx context.Context, flag FeatureFlag, attrs EvaluationContext) (EvaluationResult, error) {
+func (e *Engine) Evaluate(ctx context.Context, flag FeatureFlag, v RangeVersion, attrs EvaluationContext) (EvaluationResult, error) {
 	variationMap := buildVariationMap(flag.Variations)
 	if !flag.Enabled {
 		return buildResultFromKey(flag.DefaultKey, variationMap, ReasonDisabled)
 	}
 
-	for _, rule := range flag.Rules {
+	for _, rule := range v.Rules {
 		result, matched, err := evaluateRule(rule, attrs, variationMap)
 		if err != nil {
 			return EvaluationResult{}, err

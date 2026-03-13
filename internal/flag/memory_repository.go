@@ -1,498 +1,506 @@
-//go:build ignore
-
 package flag
 
 import (
 	"context"
 	"fmt"
-	"math"
-	"reflect"
-	"sort"
 	"sync"
 	"time"
 )
 
+// InMemoryRepository implements the Repository interface with in-memory storage.
+// It uses three separate maps for flags, ranges, and versions, with composite-key
+// indexing for efficient flag lookups by project/stage/key.
 type InMemoryRepository struct {
-	mu     sync.RWMutex
-	flags  map[int64]FeatureFlag // flags by ID
-	nextID int64
-	now    func() time.Time
+	mu       sync.RWMutex
+	flagSeq  int64
+	rangeSeq int64
+	verSeq   int64
+	flags    map[int64]FeatureFlag
+	flagKeys map[string]int64 // "project/stage/key" → flag ID
+	ranges   map[int64]FlagRange
+	versions map[int64]RangeVersion
 }
 
+// NewInMemoryRepository creates a new empty InMemoryRepository.
 func NewInMemoryRepository() *InMemoryRepository {
 	return &InMemoryRepository{
-		flags:  make(map[int64]FeatureFlag),
-		nextID: 1,
-		now:    func() time.Time { return time.Now().UTC() },
+		flags:    make(map[int64]FeatureFlag),
+		flagKeys: make(map[string]int64),
+		ranges:   make(map[int64]FlagRange),
+		versions: make(map[int64]RangeVersion),
 	}
 }
 
-// GetFlag gets the currently active flag valid at the current time
-func (r *InMemoryRepository) GetFlag(ctx context.Context, project, stage, key string) (FeatureFlag, error) {
-	return r.GetFlagAt(ctx, project, stage, key, r.now())
+func flagKeyComposite(project, stage, key string) string {
+	return project + "/" + stage + "/" + key
 }
 
-// GetFlagByID gets a specific flag range by ID
-func (r *InMemoryRepository) GetFlagByID(ctx context.Context, id int64) (FeatureFlag, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+// --- Clone helpers ---
 
-	flag, ok := r.flags[id]
-	if !ok {
-		return FeatureFlag{}, ErrFlagNotFound
+func cloneFlag(f FeatureFlag) FeatureFlag {
+	cpy := f
+	if len(f.Variations) > 0 {
+		cpy.Variations = make([]Variation, len(f.Variations))
+		copy(cpy.Variations, f.Variations)
 	}
+	return cpy
+}
+
+func cloneRules(rules []Rule) []Rule {
+	if rules == nil {
+		return nil
+	}
+	out := make([]Rule, len(rules))
+	for i, rule := range rules {
+		cpy := rule
+		if len(rule.Conditions) > 0 {
+			cpy.Conditions = make([]Condition, len(rule.Conditions))
+			copy(cpy.Conditions, rule.Conditions)
+		}
+		if rule.Rollout != nil {
+			rolloutCopy := *rule.Rollout
+			if len(rule.Rollout.Buckets) > 0 {
+				rolloutCopy.Buckets = make([]RolloutBucket, len(rule.Rollout.Buckets))
+				copy(rolloutCopy.Buckets, rule.Rollout.Buckets)
+			}
+			cpy.Rollout = &rolloutCopy
+		}
+		out[i] = cpy
+	}
+	return out
+}
+
+func cloneVersion(v RangeVersion) RangeVersion {
+	cpy := v
+	cpy.Rules = cloneRules(v.Rules)
+	return cpy
+}
+
+// --- Flag identity CRUD ---
+
+func (r *InMemoryRepository) CreateFlag(ctx context.Context, flag FeatureFlag) (FeatureFlag, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	composite := flagKeyComposite(flag.Project, flag.Stage, flag.Key)
+	if _, exists := r.flagKeys[composite]; exists {
+		return FeatureFlag{}, fmt.Errorf("%w: duplicate key %s", ErrInvalidFlag, composite)
+	}
+
+	now := time.Now().UTC()
+	r.flagSeq++
+	flag.ID = r.flagSeq
+	flag.CreatedAt = now
+	flag.UpdatedAt = now
+
+	r.flags[flag.ID] = cloneFlag(flag)
+	r.flagKeys[composite] = flag.ID
 
 	return cloneFlag(flag), nil
 }
 
-// GetFlagAt gets the active flag valid at a specific time
-func (r *InMemoryRepository) GetFlagAt(ctx context.Context, project, stage, key string, at time.Time) (FeatureFlag, error) {
+func (r *InMemoryRepository) GetFlag(ctx context.Context, project, stage, key string) (FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var found *FeatureFlag
-	for _, flag := range r.flags {
-		if flag.Project == project && flag.Stage == stage && flag.Key == key && flag.Active {
-			if IsValidInRange(at, flag.ValidFrom, flag.ValidTo) {
-				if found == nil || flag.ValidFrom.After(found.ValidFrom) {
-					flagCopy := flag
-					found = &flagCopy
-				}
-			}
-		}
-	}
-
-	if found == nil {
+	composite := flagKeyComposite(project, stage, key)
+	id, ok := r.flagKeys[composite]
+	if !ok {
 		return FeatureFlag{}, ErrFlagNotFound
 	}
 
-	return cloneFlag(*found), nil
+	f, ok := r.flags[id]
+	if !ok {
+		return FeatureFlag{}, ErrFlagNotFound
+	}
+
+	return cloneFlag(f), nil
 }
 
-// GetFlagRanges gets all temporal ranges (active and inactive) for a flag
-func (r *InMemoryRepository) GetFlagRanges(ctx context.Context, project, stage, key string) ([]FeatureFlag, error) {
+func (r *InMemoryRepository) GetFlagByID(ctx context.Context, id int64) (FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	flags := make([]FeatureFlag, 0)
-	for _, flag := range r.flags {
-		if flag.Project == project && flag.Stage == stage && flag.Key == key {
-			flags = append(flags, cloneFlag(flag))
-		}
+	f, ok := r.flags[id]
+	if !ok {
+		return FeatureFlag{}, ErrFlagNotFound
 	}
 
-	// Sort by ValidFrom descending (most recent first)
-	for i := 0; i < len(flags)-1; i++ {
-		for j := i + 1; j < len(flags); j++ {
-			if flags[i].ValidFrom.Before(flags[j].ValidFrom) {
-				flags[i], flags[j] = flags[j], flags[i]
-			}
-		}
-	}
-
-	return flags, nil
+	return cloneFlag(f), nil
 }
 
-// ListFlags lists all flag ranges for a project/stage ordered by key and recency.
-func (r *InMemoryRepository) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	flags := make([]FeatureFlag, 0)
-	for _, flag := range r.flags {
-		if flag.Project == project && flag.Stage == stage {
-			flags = append(flags, cloneFlag(flag))
-		}
-	}
-
-	sort.SliceStable(flags, func(i, j int) bool {
-		if flags[i].Key == flags[j].Key {
-			return flags[i].ValidFrom.After(flags[j].ValidFrom)
-		}
-		return flags[i].Key < flags[j].Key
-	})
-
-	return flags, nil
-}
-
-// UpsertFlag creates or updates a flag range (validates non-overlapping ranges)
-func (r *InMemoryRepository) UpsertFlag(ctx context.Context, flag FeatureFlag) error {
-	if err := validateFlag(flag); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidFlag, err)
-	}
-
-	// Validate temporal range
-	if err := ValidateTemporalRange(flag.ValidFrom, flag.ValidTo); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidTimeRange, err)
-	}
-
+func (r *InMemoryRepository) UpdateFlag(ctx context.Context, flag FeatureFlag) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Check for overlapping ranges
-	hasOverlap, err := r.checkOverlapLocked(flag.Project, flag.Stage, flag.Key, flag.ValidFrom, flag.ValidTo, flag.ID)
-	if err != nil {
-		return fmt.Errorf("failed to check overlap: %w", err)
-	}
-	if hasOverlap {
-		return ErrRangeOverlap
+	existing, ok := r.flags[flag.ID]
+	if !ok {
+		return ErrFlagNotFound
 	}
 
-	now := r.now()
+	// Keep project/stage/key immutable
+	flag.Project = existing.Project
+	flag.Stage = existing.Stage
+	flag.Key = existing.Key
 
-	// Update existing flag range
-	if flag.ID > 0 {
-		existing, exists := r.flags[flag.ID]
-		if !exists {
-			return ErrFlagNotFound
-		}
-
-		// Optimistic locking check
-		if !flag.UpdatedAt.IsZero() && !flag.UpdatedAt.Equal(existing.UpdatedAt) {
-			return ErrFlagConflict
-		}
-
-		flag.CreatedAt = existing.CreatedAt
-		flag.UpdatedAt = now
-		r.flags[flag.ID] = cloneFlag(flag)
-		return nil
-	}
-
-	// Insert new flag range
-	flag.ID = r.nextID
-	r.nextID++
-	flag.CreatedAt = now
-	flag.UpdatedAt = now
-
-	// Default to active if not specified
-	if !flag.Active {
-		flag.Active = true
-	}
+	// Preserve CreatedAt, update UpdatedAt
+	flag.CreatedAt = existing.CreatedAt
+	flag.UpdatedAt = time.Now().UTC()
 
 	r.flags[flag.ID] = cloneFlag(flag)
 	return nil
 }
 
-// DeleteFlag deletes a specific flag range by ID
 func (r *InMemoryRepository) DeleteFlag(ctx context.Context, id int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.flags[id]; !exists {
+	f, ok := r.flags[id]
+	if !ok {
 		return ErrFlagNotFound
 	}
 
+	// Cascade delete: find all ranges belonging to this flag and their versions
+	for rID, rng := range r.ranges {
+		if rng.FlagID == id {
+			// Delete versions belonging to this range
+			for vID, v := range r.versions {
+				if v.RangeID == rID {
+					delete(r.versions, vID)
+				}
+			}
+			delete(r.ranges, rID)
+		}
+	}
+
+	// Remove composite key mapping and flag
+	composite := flagKeyComposite(f.Project, f.Stage, f.Key)
+	delete(r.flagKeys, composite)
 	delete(r.flags, id)
-	return nil
-}
-
-// ActivateFlag activates a flag range (checks for overlapping active ranges)
-func (r *InMemoryRepository) ActivateFlag(ctx context.Context, id int64) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	flag, exists := r.flags[id]
-	if !exists {
-		return ErrFlagNotFound
-	}
-
-	// Check if already active
-	if flag.Active {
-		return nil // Already active, nothing to do
-	}
-
-	// Check for overlapping active ranges
-	hasOverlap, err := r.checkActiveOverlapLocked(flag.Project, flag.Stage, flag.Key, flag.ValidFrom, flag.ValidTo, id)
-	if err != nil {
-		return fmt.Errorf("failed to check active overlap: %w", err)
-	}
-	if hasOverlap {
-		return ErrActiveRangeOverlap
-	}
-
-	// Activate the range
-	flag.Active = true
-	r.flags[id] = flag
 
 	return nil
 }
 
-// DeactivateFlag deactivates a flag range
-func (r *InMemoryRepository) DeactivateFlag(ctx context.Context, id int64) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	flag, exists := r.flags[id]
-	if !exists {
-		return ErrFlagNotFound
-	}
-
-	flag.Active = false
-	r.flags[id] = flag
-
-	return nil
-}
-
-// CheckOverlap checks if a time range overlaps with any existing ranges (active or inactive)
-func (r *InMemoryRepository) CheckOverlap(ctx context.Context, project, stage, key string, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
+func (r *InMemoryRepository) ListFlags(ctx context.Context, project, stage string) ([]FeatureFlag, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.checkOverlapLocked(project, stage, key, validFrom, validTo, excludeID)
+	result := make([]FeatureFlag, 0)
+	for _, f := range r.flags {
+		if f.Project == project && f.Stage == stage {
+			result = append(result, cloneFlag(f))
+		}
+	}
+
+	return result, nil
 }
 
-// checkOverlapLocked checks overlap without acquiring lock (assumes caller holds lock)
-func (r *InMemoryRepository) checkOverlapLocked(project, stage, key string, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
+// --- Range CRUD ---
+
+func (r *InMemoryRepository) CreateRange(ctx context.Context, rng FlagRange) (FlagRange, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Validate flag exists
+	if _, ok := r.flags[rng.FlagID]; !ok {
+		return FlagRange{}, ErrFlagNotFound
+	}
+
+	// Validate temporal range
+	if err := ValidateTemporalRange(rng.ValidFrom, rng.ValidTo); err != nil {
+		return FlagRange{}, fmt.Errorf("%w: %v", ErrInvalidTimeRange, err)
+	}
+
+	// Check overlap with existing ranges for this flag
+	if overlap := r.checkOverlapLocked(rng.FlagID, rng.ValidFrom, rng.ValidTo, 0); overlap {
+		return FlagRange{}, ErrRangeOverlap
+	}
+
+	now := time.Now().UTC()
+	r.rangeSeq++
+	rng.ID = r.rangeSeq
+	rng.Active = false // ranges start inactive
+	rng.CreatedAt = now
+	rng.UpdatedAt = now
+
+	r.ranges[rng.ID] = rng
+	return rng, nil
+}
+
+func (r *InMemoryRepository) GetRange(ctx context.Context, id int64) (FlagRange, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	rng, ok := r.ranges[id]
+	if !ok {
+		return FlagRange{}, ErrRangeNotFound
+	}
+	return rng, nil
+}
+
+func (r *InMemoryRepository) UpdateRange(ctx context.Context, rng FlagRange) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.ranges[rng.ID]
+	if !ok {
+		return ErrRangeNotFound
+	}
+
+	// Validate temporal range
+	if err := ValidateTemporalRange(rng.ValidFrom, rng.ValidTo); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidTimeRange, err)
+	}
+
+	// Check overlap excluding self
+	if overlap := r.checkOverlapLocked(existing.FlagID, rng.ValidFrom, rng.ValidTo, rng.ID); overlap {
+		return ErrRangeOverlap
+	}
+
+	// Keep FlagID, Active, CreatedAt immutable
+	rng.FlagID = existing.FlagID
+	rng.Active = existing.Active
+	rng.CreatedAt = existing.CreatedAt
+	rng.UpdatedAt = time.Now().UTC()
+
+	r.ranges[rng.ID] = rng
+	return nil
+}
+
+func (r *InMemoryRepository) DeleteRange(ctx context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.ranges[id]; !ok {
+		return ErrRangeNotFound
+	}
+
+	// Cascade delete versions belonging to this range
+	for vID, v := range r.versions {
+		if v.RangeID == id {
+			delete(r.versions, vID)
+		}
+	}
+
+	delete(r.ranges, id)
+	return nil
+}
+
+func (r *InMemoryRepository) ListRanges(ctx context.Context, flagID int64) ([]FlagRange, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]FlagRange, 0)
+	for _, rng := range r.ranges {
+		if rng.FlagID == flagID {
+			result = append(result, rng)
+		}
+	}
+	return result, nil
+}
+
+func (r *InMemoryRepository) ActivateRange(ctx context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rng, ok := r.ranges[id]
+	if !ok {
+		return ErrRangeNotFound
+	}
+
+	rng.Active = true
+	r.ranges[id] = rng
+	return nil
+}
+
+func (r *InMemoryRepository) DeactivateRange(ctx context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rng, ok := r.ranges[id]
+	if !ok {
+		return ErrRangeNotFound
+	}
+
+	rng.Active = false
+	r.ranges[id] = rng
+	return nil
+}
+
+func (r *InMemoryRepository) GetActiveRange(ctx context.Context, flagID int64, at time.Time) (FlagRange, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, rng := range r.ranges {
+		if rng.FlagID == flagID && rng.Active && IsValidInRange(at, rng.ValidFrom, rng.ValidTo) {
+			return rng, nil
+		}
+	}
+	return FlagRange{}, ErrRangeNotFound
+}
+
+func (r *InMemoryRepository) CheckRangeOverlap(ctx context.Context, flagID int64, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.checkOverlapLocked(flagID, validFrom, validTo, excludeID), nil
+}
+
+// checkOverlapLocked checks if a time range overlaps with existing ranges for a flag.
+// Caller must hold at least a read lock.
+func (r *InMemoryRepository) checkOverlapLocked(flagID int64, validFrom time.Time, validTo *time.Time, excludeID int64) bool {
 	newRange := TimeRange{From: validFrom, To: validTo}
 
-	for _, flag := range r.flags {
-		if flag.ID == excludeID {
+	for _, rng := range r.ranges {
+		if rng.ID == excludeID {
 			continue
 		}
-		if flag.Project == project && flag.Stage == stage && flag.Key == key {
-			existingRange := TimeRange{From: flag.ValidFrom, To: flag.ValidTo}
-			if RangesOverlap(newRange, existingRange) {
-				return true, nil
+		if rng.FlagID == flagID {
+			existing := TimeRange{From: rng.ValidFrom, To: rng.ValidTo}
+			if RangesOverlap(newRange, existing) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// --- Version CRUD ---
+
+func (r *InMemoryRepository) CreateVersion(ctx context.Context, v RangeVersion) (RangeVersion, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Validate range exists
+	if _, ok := r.ranges[v.RangeID]; !ok {
+		return RangeVersion{}, ErrRangeNotFound
+	}
+
+	// Check for existing draft
+	for _, existing := range r.versions {
+		if existing.RangeID == v.RangeID && existing.Status == VersionStatusDraft {
+			return RangeVersion{}, ErrDraftExists
+		}
+	}
+
+	// Auto-increment version number from max existing for this range
+	maxVer := 0
+	for _, existing := range r.versions {
+		if existing.RangeID == v.RangeID && existing.Version > maxVer {
+			maxVer = existing.Version
+		}
+	}
+
+	now := time.Now().UTC()
+	r.verSeq++
+	v.ID = r.verSeq
+	v.Version = maxVer + 1
+	v.Status = VersionStatusDraft
+	v.PublishedAt = nil
+	v.CreatedAt = now
+	v.Rules = cloneRules(v.Rules)
+
+	r.versions[v.ID] = cloneVersion(v)
+	return cloneVersion(v), nil
+}
+
+func (r *InMemoryRepository) GetVersion(ctx context.Context, id int64) (RangeVersion, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	v, ok := r.versions[id]
+	if !ok {
+		return RangeVersion{}, ErrVersionNotFound
+	}
+	return cloneVersion(v), nil
+}
+
+func (r *InMemoryRepository) UpdateVersion(ctx context.Context, v RangeVersion) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.versions[v.ID]
+	if !ok {
+		return ErrVersionNotFound
+	}
+
+	// Only drafts can be updated
+	if existing.Status != VersionStatusDraft {
+		return ErrVersionNotDraft
+	}
+
+	// Only update Rules; preserve everything else
+	existing.Rules = cloneRules(v.Rules)
+	r.versions[v.ID] = existing
+	return nil
+}
+
+func (r *InMemoryRepository) DeleteDraftVersion(ctx context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	v, ok := r.versions[id]
+	if !ok {
+		return ErrVersionNotFound
+	}
+
+	if v.Status != VersionStatusDraft {
+		return ErrCannotDeletePublished
+	}
+
+	delete(r.versions, id)
+	return nil
+}
+
+func (r *InMemoryRepository) ListVersions(ctx context.Context, rangeID int64) ([]RangeVersion, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]RangeVersion, 0)
+	for _, v := range r.versions {
+		if v.RangeID == rangeID {
+			result = append(result, cloneVersion(v))
+		}
+	}
+	return result, nil
+}
+
+func (r *InMemoryRepository) GetPublishedVersion(ctx context.Context, rangeID int64) (RangeVersion, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var best *RangeVersion
+	for _, v := range r.versions {
+		if v.RangeID == rangeID && v.Status == VersionStatusPublished {
+			if best == nil || v.Version > best.Version {
+				cpy := v
+				best = &cpy
 			}
 		}
 	}
 
-	return false, nil
+	if best == nil {
+		return RangeVersion{}, ErrNoPublishedVersion
+	}
+	return cloneVersion(*best), nil
 }
 
-// checkActiveOverlapLocked checks if a time range overlaps with any active ranges
-func (r *InMemoryRepository) checkActiveOverlapLocked(project, stage, key string, validFrom time.Time, validTo *time.Time, excludeID int64) (bool, error) {
-	newRange := TimeRange{From: validFrom, To: validTo}
+func (r *InMemoryRepository) PublishVersion(ctx context.Context, id int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	for _, flag := range r.flags {
-		if flag.ID == excludeID {
-			continue
-		}
-		if flag.Project == project && flag.Stage == stage && flag.Key == key && flag.Active {
-			existingRange := TimeRange{From: flag.ValidFrom, To: flag.ValidTo}
-			if RangesOverlap(newRange, existingRange) {
-				return true, nil
-			}
-		}
+	v, ok := r.versions[id]
+	if !ok {
+		return ErrVersionNotFound
 	}
 
-	return false, nil
-}
-
-func cloneFlag(flag FeatureFlag) FeatureFlag {
-	cpy := flag
-	if len(flag.Variations) > 0 {
-		cpy.Variations = make([]Variation, len(flag.Variations))
-		copy(cpy.Variations, flag.Variations)
-	}
-	if len(flag.Rules) > 0 {
-		cpy.Rules = make([]Rule, len(flag.Rules))
-		for i, rule := range flag.Rules {
-			cpy.Rules[i] = cloneRule(rule)
-		}
-	}
-	return cpy
-}
-
-func validateFlag(flag FeatureFlag) error {
-	if flag.Key == "" {
-		return fmt.Errorf("key is required")
-	}
-	if len(flag.Variations) == 0 {
-		return fmt.Errorf("at least one variation required")
+	if v.Status != VersionStatusDraft {
+		return ErrVersionNotDraft
 	}
 
-	keys := make(map[string]struct{}, len(flag.Variations))
-	var defaultFound bool
-	for _, variation := range flag.Variations {
-		if variation.Key == "" {
-			return fmt.Errorf("variation key is required")
-		}
-		if _, exists := keys[variation.Key]; exists {
-			return fmt.Errorf("duplicate variation key %q", variation.Key)
-		}
-		keys[variation.Key] = struct{}{}
-
-		if err := validateVariation(variation); err != nil {
-			return err
-		}
-		if variation.Key == flag.DefaultKey {
-			defaultFound = true
-		}
-	}
-
-	if flag.DefaultKey == "" {
-		return fmt.Errorf("default variation key is required")
-	}
-
-	if !defaultFound {
-		return fmt.Errorf("default variation %q not found", flag.DefaultKey)
-	}
-
-	for _, rule := range flag.Rules {
-		if err := validateRule(rule, keys); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func validateVariation(variation Variation) error {
-	switch variation.Type {
-	case BooleanVariation:
-		if _, ok := variation.Value.(bool); !ok {
-			return fmt.Errorf("variation %q expects boolean value", variation.Key)
-		}
-	case StringVariation:
-		if _, ok := variation.Value.(string); !ok {
-			return fmt.Errorf("variation %q expects string value", variation.Key)
-		}
-	case NumberVariation:
-		if !isNumeric(variation.Value) {
-			return fmt.Errorf("variation %q expects numeric value", variation.Key)
-		}
-	case ObjectVariation:
-		if !isObjectType(variation.Value) {
-			return fmt.Errorf("variation %q expects object value", variation.Key)
-		}
-	default:
-		return fmt.Errorf("variation %q has unsupported type %q", variation.Key, variation.Type)
-	}
-	return nil
-}
-
-func isNumeric(value any) bool {
-	switch value.(type) {
-	case int, int8, int16, int32, int64,
-		uint, uint8, uint16, uint32, uint64,
-		float32, float64:
-		return true
-	default:
-		return false
-	}
-}
-
-func isObjectType(value any) bool {
-	if value == nil {
-		return false
-	}
-	if _, ok := value.([]byte); ok {
-		return true
-	}
-
-	rv := reflect.ValueOf(value)
-	switch rv.Kind() {
-	case reflect.Map, reflect.Struct:
-		return true
-	default:
-		return false
-	}
-}
-
-func cloneRule(rule Rule) Rule {
-	cpy := rule
-	if len(rule.Conditions) > 0 {
-		cpy.Conditions = make([]Condition, len(rule.Conditions))
-		copy(cpy.Conditions, rule.Conditions)
-	}
-	if rule.Rollout != nil {
-		rolloutCopy := *rule.Rollout
-		if len(rule.Rollout.Buckets) > 0 {
-			rolloutCopy.Buckets = make([]RolloutBucket, len(rule.Rollout.Buckets))
-			copy(rolloutCopy.Buckets, rule.Rollout.Buckets)
-		}
-		cpy.Rollout = &rolloutCopy
-	}
-	return cpy
-}
-
-func validateRule(rule Rule, variations map[string]struct{}) error {
-	for _, condition := range rule.Conditions {
-		if condition.Attribute == "" {
-			return fmt.Errorf("rule %q condition missing attribute", rule.ID)
-		}
-		if err := validateCondition(condition); err != nil {
-			return fmt.Errorf("rule %q: %w", rule.ID, err)
-		}
-	}
-
-	if rule.Rollout != nil {
-		if rule.VariationKey != "" {
-			return fmt.Errorf("rule %q cannot define both variation key and rollout", rule.ID)
-		}
-		if err := validateRollout(rule.Rollout, variations); err != nil {
-			return fmt.Errorf("rule %q rollout: %w", rule.ID, err)
-		}
-		return nil
-	}
-
-	if rule.VariationKey == "" {
-		return fmt.Errorf("rule %q must specify variation key when rollout absent", rule.ID)
-	}
-
-	if _, ok := variations[rule.VariationKey]; !ok {
-		return fmt.Errorf("rule %q references unknown variation %q", rule.ID, rule.VariationKey)
-	}
-
-	return nil
-}
-
-func validateCondition(condition Condition) error {
-	switch condition.Operator {
-	case MatcherExists:
-		return nil
-	case MatcherEquals, MatcherNotEquals:
-		if condition.Value == nil {
-			return fmt.Errorf("operator %q requires value", condition.Operator)
-		}
-		return nil
-	case MatcherContains, MatcherStartsWith, MatcherEndsWith:
-		if _, ok := condition.Value.(string); !ok {
-			return fmt.Errorf("operator %q expects string value", condition.Operator)
-		}
-		return nil
-	case MatcherGreater, MatcherLess:
-		if !isNumeric(condition.Value) {
-			return fmt.Errorf("operator %q expects numeric value", condition.Operator)
-		}
-		return nil
-	case MatcherIn:
-		rv := reflect.ValueOf(condition.Value)
-		if !rv.IsValid() || (rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array) {
-			return fmt.Errorf("operator %q expects slice or array value", condition.Operator)
-		}
-		if rv.Len() == 0 {
-			return fmt.Errorf("operator %q expects non-empty collection", condition.Operator)
-		}
-		return nil
-	default:
-		return fmt.Errorf("unknown operator %q", condition.Operator)
-	}
-}
-
-func validateRollout(rollout *PercentageRollout, variations map[string]struct{}) error {
-	if rollout.Attribute == "" {
-		return fmt.Errorf("attribute is required")
-	}
-	if len(rollout.Buckets) == 0 {
-		return fmt.Errorf("at least one rollout bucket required")
-	}
-
-	var total float64
-	for _, bucket := range rollout.Buckets {
-		if bucket.Weight <= 0 {
-			return fmt.Errorf("bucket for variation %q must have positive weight", bucket.VariationKey)
-		}
-		if _, ok := variations[bucket.VariationKey]; !ok {
-			return fmt.Errorf("bucket references unknown variation %q", bucket.VariationKey)
-		}
-		total += bucket.Weight
-	}
-
-	if math.Abs(total-100.0) > 0.0001 {
-		return fmt.Errorf("rollout weights must total 100, got %f", total)
-	}
-
+	now := time.Now().UTC()
+	v.Status = VersionStatusPublished
+	v.PublishedAt = &now
+	r.versions[id] = v
 	return nil
 }
