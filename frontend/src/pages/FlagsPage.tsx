@@ -84,7 +84,6 @@ export function FlagsPage() {
           name: formName,
           description: formDescription,
           enabled: false,
-          active: false,
           defaultKey: "control",
           variations: [
             { key: "control", type: "boolean", value: false, description: "Control" },

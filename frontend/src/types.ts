@@ -68,14 +68,32 @@ export interface FeatureFlag {
   name: string;
   description?: string;
   enabled: boolean;
+  defaultKey: string;
+  variations: Variation[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FlagRange {
+  id: number;
+  flagId: number;
   active: boolean;
   validFrom: string;
   validTo?: string;
-  defaultKey: string;
-  variations: Variation[];
-  rules: Rule[];
   createdAt: string;
   updatedAt: string;
+}
+
+export type VersionStatus = "draft" | "published";
+
+export interface RangeVersion {
+  id: number;
+  rangeId: number;
+  version: number;
+  status: VersionStatus;
+  rules: Rule[];
+  publishedAt?: string;
+  createdAt: string;
 }
 
 export interface AuthUser {
