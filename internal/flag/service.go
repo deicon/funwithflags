@@ -3,6 +3,7 @@ package flag
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 type Service struct {
@@ -68,6 +69,11 @@ func (s *Service) CreateFlag(ctx context.Context, flag FeatureFlag, performedBy 
 	}
 	if flag.Key == "" {
 		return fmt.Errorf("flag key is required")
+	}
+
+	// Default validFrom to now if not provided
+	if flag.ValidFrom.IsZero() {
+		flag.ValidFrom = time.Now().UTC()
 	}
 
 	// Create the flag (temporal ranges allow multiple entries per key)
