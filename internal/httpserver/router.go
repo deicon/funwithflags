@@ -72,29 +72,55 @@ func NewRouter(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("DELETE /api/v1/admin/projects/{project}/stages/{stage}",
 		wrapAuth(cfg.AuthManager, true, newDeleteStageHandler(cfg.ProjectService)))
 
-	// Admin endpoints - flag operations (currently active flags)
+	// Flag identity
 	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags",
 		wrapAuth(cfg.AuthManager, true, newListFlagsHandler(cfg.FlagService)))
-	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}",
-		wrapAuth(cfg.AuthManager, true, newGetFlagHandler(cfg.FlagService)))
 	mux.HandleFunc("POST /api/v1/admin/{project}/{stage}/flags",
 		wrapAuth(cfg.AuthManager, true, newCreateFlagHandler(cfg.FlagService)))
-	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}/audit",
-		wrapAuth(cfg.AuthManager, true, newGetAuditLogsHandler(cfg.FlagService)))
-
-	// Admin endpoints - temporal range operations
+	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}",
+		wrapAuth(cfg.AuthManager, true, newGetFlagHandler(cfg.FlagService)))
 	mux.HandleFunc("GET /api/v1/admin/flags/{id}",
 		wrapAuth(cfg.AuthManager, true, newGetFlagByIDHandler(cfg.FlagService)))
 	mux.HandleFunc("PUT /api/v1/admin/flags/{id}",
 		wrapAuth(cfg.AuthManager, true, newUpdateFlagHandler(cfg.FlagService)))
 	mux.HandleFunc("DELETE /api/v1/admin/flags/{id}",
 		wrapAuth(cfg.AuthManager, true, newDeleteFlagHandler(cfg.FlagService)))
-	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}/ranges",
-		wrapAuth(cfg.AuthManager, true, newGetFlagRangesHandler(cfg.FlagService)))
-	mux.HandleFunc("POST /api/v1/admin/flags/{id}/activate",
-		wrapAuth(cfg.AuthManager, true, newActivateFlagHandler(cfg.FlagService)))
-	mux.HandleFunc("POST /api/v1/admin/flags/{id}/deactivate",
-		wrapAuth(cfg.AuthManager, true, newDeactivateFlagHandler(cfg.FlagService)))
+
+	// Ranges
+	mux.HandleFunc("GET /api/v1/admin/flags/{flagId}/ranges",
+		wrapAuth(cfg.AuthManager, true, newListRangesHandler(cfg.FlagService)))
+	mux.HandleFunc("POST /api/v1/admin/flags/{flagId}/ranges",
+		wrapAuth(cfg.AuthManager, true, newCreateRangeHandler(cfg.FlagService)))
+	mux.HandleFunc("GET /api/v1/admin/ranges/{id}",
+		wrapAuth(cfg.AuthManager, true, newGetRangeHandler(cfg.FlagService)))
+	mux.HandleFunc("PUT /api/v1/admin/ranges/{id}",
+		wrapAuth(cfg.AuthManager, true, newUpdateRangeHandler(cfg.FlagService)))
+	mux.HandleFunc("DELETE /api/v1/admin/ranges/{id}",
+		wrapAuth(cfg.AuthManager, true, newDeleteRangeHandler(cfg.FlagService)))
+	mux.HandleFunc("POST /api/v1/admin/ranges/{id}/activate",
+		wrapAuth(cfg.AuthManager, true, newActivateRangeHandler(cfg.FlagService)))
+	mux.HandleFunc("POST /api/v1/admin/ranges/{id}/deactivate",
+		wrapAuth(cfg.AuthManager, true, newDeactivateRangeHandler(cfg.FlagService)))
+
+	// Versions
+	mux.HandleFunc("GET /api/v1/admin/ranges/{rangeId}/versions",
+		wrapAuth(cfg.AuthManager, true, newListVersionsHandler(cfg.FlagService)))
+	mux.HandleFunc("POST /api/v1/admin/ranges/{rangeId}/versions",
+		wrapAuth(cfg.AuthManager, true, newCreateVersionHandler(cfg.FlagService)))
+	mux.HandleFunc("GET /api/v1/admin/versions/{id}",
+		wrapAuth(cfg.AuthManager, true, newGetVersionHandler(cfg.FlagService)))
+	mux.HandleFunc("PUT /api/v1/admin/versions/{id}",
+		wrapAuth(cfg.AuthManager, true, newUpdateVersionHandler(cfg.FlagService)))
+	mux.HandleFunc("DELETE /api/v1/admin/versions/{id}",
+		wrapAuth(cfg.AuthManager, true, newDeleteVersionHandler(cfg.FlagService)))
+	mux.HandleFunc("POST /api/v1/admin/versions/{id}/publish",
+		wrapAuth(cfg.AuthManager, true, newPublishVersionHandler(cfg.FlagService)))
+	mux.HandleFunc("POST /api/v1/admin/versions/{id}/rollback",
+		wrapAuth(cfg.AuthManager, true, newRollbackVersionHandler(cfg.FlagService)))
+
+	// Audit
+	mux.HandleFunc("GET /api/v1/admin/{project}/{stage}/flags/{key}/audit",
+		wrapAuth(cfg.AuthManager, true, newGetAuditLogsHandler(cfg.FlagService)))
 	// User management endpoints
 	mux.HandleFunc("GET /api/v1/admin/users",
 		wrapAuth(cfg.AuthManager, true, newListUsersHandler(cfg.AuthService)))

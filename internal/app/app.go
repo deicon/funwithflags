@@ -91,14 +91,15 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("unsupported storage type: %s", storageType)
 	}
 
-	engine := flag.NewEngine()
-	flagService, err := flag.NewService(repo, engine)
+	flagService, err := flag.NewService(repo)
 	if err != nil {
 		if pool != nil {
 			pool.Close()
 		}
 		return nil, fmt.Errorf("init flag service: %w", err)
 	}
+
+	flagService.SetEvaluator(&flag.Engine{})
 
 	if auditService != nil {
 		flagService.SetAuditService(auditService)
