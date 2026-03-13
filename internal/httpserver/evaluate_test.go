@@ -17,36 +17,61 @@ import (
 
 func TestEvaluateFlag_Success(t *testing.T) {
 	repo := flag.NewInMemoryRepository()
-	engine := flag.NewEngine()
-	service, err := flag.NewService(repo, engine)
+	service, err := flag.NewService(repo)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	service.SetEvaluator(&flag.Engine{})
 
-	flagDef := flag.FeatureFlag{
+	ctx := context.Background()
+
+	// Create flag identity
+	created, err := service.CreateFlag(ctx, flag.FeatureFlag{
 		Project:    "test-project",
 		Stage:      "dev",
 		Key:        "checkout",
+		Name:       "Checkout",
 		Enabled:    true,
-		Active:     true,
-		ValidFrom:  time.Now(),
 		DefaultKey: "control",
 		Variations: []flag.Variation{
 			{Key: "control", Type: flag.BooleanVariation, Value: false},
 			{Key: "variant", Type: flag.BooleanVariation, Value: true},
 		},
-		Rules: []flag.Rule{
-			{
-				ID:           "country-de",
-				VariationKey: "variant",
-				Conditions: []flag.Condition{
-					{Attribute: "country", Operator: flag.MatcherEquals, Value: "DE"},
-				},
+	}, "")
+	if err != nil {
+		t.Fatalf("CreateFlag: %v", err)
+	}
+
+	// Create a range covering now, with rules
+	rng, _, err := service.CreateRange(ctx, flag.FlagRange{
+		FlagID:    created.ID,
+		ValidFrom: time.Now().Add(-time.Hour),
+	}, []flag.Rule{
+		{
+			ID:           "country-de",
+			VariationKey: "variant",
+			Conditions: []flag.Condition{
+				{Attribute: "country", Operator: flag.MatcherEquals, Value: "DE"},
 			},
 		},
+	}, "")
+	if err != nil {
+		t.Fatalf("CreateRange: %v", err)
 	}
-	if err := repo.UpsertFlag(context.Background(), flagDef); err != nil {
-		t.Fatalf("UpsertFlag: %v", err)
+
+	// Get the auto-created draft version
+	versions, err := repo.ListVersions(ctx, rng.ID)
+	if err != nil || len(versions) == 0 {
+		t.Fatalf("ListVersions: %v (len=%d)", err, len(versions))
+	}
+	draftVersion := versions[0]
+
+	// Publish the version and activate the range
+	if err := service.PublishVersion(ctx, draftVersion.ID, ""); err != nil {
+		t.Fatalf("PublishVersion: %v", err)
+	}
+	if err := service.ActivateRange(ctx, rng.ID, ""); err != nil {
+		t.Fatalf("ActivateRange: %v", err)
 	}
 
 	router, manager := newTestRouter(t, service)
@@ -76,12 +101,12 @@ func TestEvaluateFlag_Success(t *testing.T) {
 }
 
 func TestEvaluateFlag_NotFound(t *testing.T) {
-	engine := flag.NewEngine()
 	repo := flag.NewInMemoryRepository()
-	service, err := flag.NewService(repo, engine)
+	service, err := flag.NewService(repo)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	service.SetEvaluator(&flag.Engine{})
 
 	router, manager := newTestRouter(t, service)
 
@@ -96,12 +121,12 @@ func TestEvaluateFlag_NotFound(t *testing.T) {
 }
 
 func TestEvaluateFlag_InvalidJSON(t *testing.T) {
-	engine := flag.NewEngine()
 	repo := flag.NewInMemoryRepository()
-	service, err := flag.NewService(repo, engine)
+	service, err := flag.NewService(repo)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
+	service.SetEvaluator(&flag.Engine{})
 
 	router, manager := newTestRouter(t, service)
 
