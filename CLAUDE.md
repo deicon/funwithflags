@@ -49,6 +49,15 @@ This file covers architecture awareness and AI-specific guidance.
 - Auth state managed via React Context (AuthContext)
 - Styling: CSS
 
+## Verification
+- Go: `go build ./... && go test ./...`
+- Frontend type check: `cd frontend && npx tsc --noEmit`
+- E2E tests against docker-compose:
+  ```
+  docker-compose up -d
+  cd frontend && API_URL=http://localhost:8080 npx playwright test
+  ```
+
 ## Notes
 - Go version is 1.24 (per go.mod) — CI workflow (.github/workflows/ci.yml) still references 1.22
 - AGENTS.md references Fly.io — will be updated as part of Hetzner migration
