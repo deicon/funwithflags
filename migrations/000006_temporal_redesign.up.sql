@@ -20,7 +20,10 @@ ALTER TABLE feature_flags DROP CONSTRAINT IF EXISTS fk_feature_flags_stage;
 -- 2. Drop old trigger (we will recreate it)
 DROP TRIGGER IF EXISTS update_feature_flags_updated_at ON feature_flags;
 
--- 3. Rename old table to preserve data for migration
+-- 3. Drop indexes that will conflict after rename (indexes keep their names)
+DROP INDEX IF EXISTS idx_feature_flags_project_stage;
+
+-- 4. Rename old table to preserve data for migration
 ALTER TABLE feature_flags RENAME TO feature_flags_old;
 
 -- 4. Create new feature_flags table (identity only)

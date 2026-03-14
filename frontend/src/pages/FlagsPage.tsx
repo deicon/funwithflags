@@ -67,6 +67,8 @@ export function FlagsPage() {
         method: "PUT",
         body: { ...flag, enabled: !prev },
       });
+      // Re-fetch to keep local state in sync with server (e.g. updatedAt)
+      fetchFlags();
     } catch {
       // Rollback
       setFlags((fs) => fs.map((f) => (f.id === flag.id ? { ...f, enabled: prev } : f)));

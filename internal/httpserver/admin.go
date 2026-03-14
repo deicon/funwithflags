@@ -160,18 +160,20 @@ func newUpdateFlagHandler(service *flag.Service) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "invalid flag")
 				return
 			}
-			if errors.Is(err, flag.ErrFlagConflict) {
-				writeError(w, http.StatusConflict, "flag conflict - version mismatch")
-				return
-			}
 			writeError(w, http.StatusInternalServerError, "failed to update flag")
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{
-			"message": "flag updated successfully",
-			"id":      id,
-		})
+		updated, err := service.GetFlagByID(r.Context(), id)
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"message": "flag updated successfully",
+				"id":      id,
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusOK, updated)
 	}
 }
 

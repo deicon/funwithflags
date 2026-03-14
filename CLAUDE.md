@@ -52,7 +52,12 @@ This file covers architecture awareness and AI-specific guidance.
 ## Verification
 - Go: `go build ./... && go test ./...`
 - Frontend type check: `cd frontend && npx tsc --noEmit`
-- E2E tests against docker-compose:
+- E2E tests (requires PostgreSQL from docker-compose):
+  ```
+  docker-compose up -d postgres
+  cd frontend && npx playwright test
+  ```
+- E2E tests against full docker-compose:
   ```
   docker-compose up -d
   cd frontend && API_URL=http://localhost:8080 npx playwright test

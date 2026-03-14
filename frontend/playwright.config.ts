@@ -3,15 +3,16 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * Playwright E2E tests for funwithflags.
  *
- * Default setup (in-memory backend):
+ * Prerequisites:
+ *   docker-compose up -d postgres    # Start PostgreSQL
+ *
+ * Run:
  *   cd frontend && npx playwright test
- *   → Starts Go backend (STORAGE_TYPE=memory, port 9090) and Vite dev server automatically.
+ *   → Starts Go backend (STORAGE_TYPE=postgres, port 9090) and Vite dev server automatically.
  *
- * Against docker-compose:
+ * Against full docker-compose (app + postgres):
  *   docker-compose up -d
- *   API_URL=http://localhost:8080 npx playwright test --config playwright.config.ts
- *
- * The API_URL env var controls which backend the Vite proxy targets.
+ *   API_URL=http://localhost:8080 npx playwright test
  */
 
 const apiUrl = process.env.API_URL || "http://localhost:9090";
@@ -45,14 +46,24 @@ export default defineConfig({
   ],
 
   webServer: [
-    // Go backend with in-memory storage (skipped if API_URL is set externally)
+    // Go backend with PostgreSQL (skipped if API_URL is set externally)
     ...(!process.env.API_URL
       ? [
           {
-            command:
-              "STORAGE_TYPE=memory PORT=9090 CORS_ALLOWED_ORIGINS=http://localhost:5173 go run ../cmd/server/main.go",
+            command: [
+              "STORAGE_TYPE=postgres",
+              "DB_HOST=localhost",
+              "DB_PORT=5432",
+              "DB_USER=postgres",
+              "DB_PASSWORD=postgres",
+              "DB_NAME=funwithflags",
+              "MIGRATIONS_PATH=../migrations",
+              "PORT=9090",
+              "CORS_ALLOWED_ORIGINS=http://localhost:5173",
+              "go run ../cmd/server/main.go",
+            ].join(" "),
             url: "http://localhost:9090/healthz",
-            reuseExistingServer: true,
+            reuseExistingServer: !process.env.CI,
             timeout: 30_000,
           },
         ]
